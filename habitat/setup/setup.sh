@@ -2,26 +2,18 @@
 
 # Author: Monty Rhodes
 # Created: 23/12/2021
-# This setup script will
+# This setup script will move all the required config files over 
 
-echo "Running setup ..."
+echo "Running setup for habitat..."
 
-read -r "Please specify the hostname of this server" hostname
-
-if [ $hostname == "habitat" ]; then
-
-mv habitat/setup/etc/* /etc/
-
-fi
-
-# Moving /etc files
-
-mv habitat/setup/etc/* /etc/
-
+mv hosts /etc/
+mv hostname /etc/
+mv fstab /etc/
 
 # Configuring network settings
 echo "Configuring static IP address at 192.168.0.8"
 
 mv 01-netcfg.yaml /etc/netplan/01-netcfg.yaml
 
+netplan apply
 
