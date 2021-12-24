@@ -1,8 +1,11 @@
 127.0.0.1 localhost
-127.0.1.1 habitat
+127.0.1.1 cloudmon
 
-192.168.0.9 arctic
+192.168.0.6 cloudmon
+192.168.0.7 blackhole
 192.168.0.8 habitat
+192.168.0.9 arctic
+192.168.0.10 cloud
 
 # The following lines are desirable for IPv6 capable hosts
 ::1     ip6-localhost ip6-loopback
