@@ -1,0 +1,17 @@
+  121  sudo apt install cups
+  122  sudo systemctl start cups
+  123  sudo systemctl enable cups
+  124  systemctl status cups
+  125  sudo nano /etc/cups/cupsd.conf
+  126  sudo cp /etc/cups/cupsd.conf /etc/cups/changedconf
+  127  sudo systemctl restart cups
+  128  sudo ufw allow in from 192.168.0.0/24 to any port 631
+  129  sudo ufw allow in from 192.168.0.0/24 to any port 22
+  130  sudo ufw enable
+  131  sudo adduser monty lpadmin
+  132  sudo apt install printer-driver-gutenprint
+  133  sudo apt install avahi-daemon
+  134  sudo systemctl start avahi-daemon
+  135  sudo systemctl enable avahi-daemon
+  136  sudo ufw allow 5353/udp
+
