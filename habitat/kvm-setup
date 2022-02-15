@@ -1,0 +1,22 @@
+sudo apt install cpu-checker qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils
+
+sudo adduser monty libvirt
+
+sudo adduser monty kvm
+
+
+Verify:
+
+virsh list --all
+sudo systemctl status libvirtd
+
+Install virtmanager:
+sudo apt install virt-manager
+
+
+virt-install --name= \
+--vcpus=1 \
+--memory=1024 \
+--cdrom=/tmp/debian-9.0.0-amd64-netinst.iso \
+--disk size=5 \
+--os-variant=debian8
