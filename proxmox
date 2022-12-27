@@ -1,0 +1,16 @@
+To install Docker on Debian as root:
+
+  1) apt-get update
+  2) apt-get install ca-certificates curl gnupg lsb-release
+  3) curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+  4) echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian \
+     $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+  5) apt-get update
+  6) apt-get install docker-ce docker-ce-cli containerd.io
+
+To enable Docker in an unprivileged LXC container:
+
+  1) run: nano /etc/pve/local/lxc/<container id>.conf
+  2) add "features:  keyctl=1,nesting=1" to the file
+  3) save, exit
+  3) reboot the container
