@@ -83,7 +83,7 @@ Infrastructure-as-Code for the Nature homelab. A single-secrets-file approach to
 │   ├── README.md             # Talos-specific docs
 │   ├── controlplane.yaml     # Control plane template
 │   ├── worker.yaml           # Worker template
-│   ├── talosconfig           # talosctl client config template
+│   ├── talosconfig.template  # talosctl client config template
 │   ├── secrets.yaml.template # Schema for secrets.yaml
 │   ├── generate-configs.sh   # Script: templates + secrets -> runnable configs
 │   └── generated/            # Output directory (gitignored)

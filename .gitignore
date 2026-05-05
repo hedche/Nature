@@ -22,3 +22,9 @@ secrets/
 *.tmp
 *.bak
 talos/generated/
+
+# === Direnv ===
+.direnv/
+
+# === Generated Talos client config (loaded by direnv) ===
+talos/talosconfig

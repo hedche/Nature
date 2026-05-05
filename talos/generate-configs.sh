@@ -80,16 +80,16 @@ sed -e "s|\${TALOS_MACHINE_TOKEN}|${MACHINE_TOKEN}|g" \
     -e "s|\${TALOS_CLUSTER_CA_KEY}|${CLUSTER_CA_KEY}|g" \
     "${TEMPLATE_DIR}/worker.yaml" > "${OUTPUT_DIR}/worker.yaml"
 
-# Generate talosconfig
+# Generate talosconfig (client config — placed in talos/ for direnv auto-loading)
 sed -e "s|\${TALOS_MACHINE_CA_CRT}|${MACHINE_CA_CRT}|g" \
     -e "s|\${TALOS_CLIENT_CRT}|${CLIENT_CRT}|g" \
     -e "s|\${TALOS_CLIENT_KEY}|${CLIENT_KEY}|g" \
-    "${TEMPLATE_DIR}/talosconfig" > "${OUTPUT_DIR}/talosconfig"
+    "${TEMPLATE_DIR}/talosconfig.template" > "${SCRIPT_DIR}/talosconfig"
 
 echo "Done. Generated files:"
 echo "  ${OUTPUT_DIR}/controlplane.yaml"
 echo "  ${OUTPUT_DIR}/worker.yaml"
-echo "  ${OUTPUT_DIR}/talosconfig"
+echo "  ${SCRIPT_DIR}/talosconfig  (auto-loaded by direnv)"
 echo ""
-echo "WARNING: These files contain real secrets. They are in a gitignored directory."
+echo "WARNING: These files contain real secrets. They are in gitignored directories/files."
 echo "Do NOT commit them to git."

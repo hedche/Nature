@@ -8,7 +8,8 @@ This directory contains Talos Linux configuration templates for the Nature Kuber
 talos/
 ├── controlplane.yaml         # Template for control plane node (with placeholders)
 ├── worker.yaml               # Template for worker nodes (with placeholders)
-├── talosconfig               # Template for talosctl client config (with placeholders)
+├── talosconfig.template      # Template for talosctl client config (with placeholders)
+├── .envrc                    # direnv: auto-sets TALOSCONFIG when you cd here
 ├── secrets.yaml.template     # Schema for your local secrets.yaml
 ├── generate-configs.sh       # Script to inject secrets into templates
 ├── generated/                # Output directory for runnable configs (gitignored)
