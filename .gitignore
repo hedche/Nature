@@ -1,0 +1,24 @@
+# === Secrets — never commit ===
+# Generated Talos configs with real credentials injected
+# talos/generated/
+# Local secrets file (single file strategy for homelab)
+secrets.yaml
+secrets.env
+secrets/
+*.key
+*.pem
+*.p12
+*.pfx
+
+# === OS / Editor ===
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# === Temporary ===
+*.tmp
+*.bak
+talos/generated/
