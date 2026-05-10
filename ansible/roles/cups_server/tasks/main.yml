@@ -1,0 +1,92 @@
+---
+- name: Ensure CUPS and related packages are installed
+  ansible.builtin.apt:
+    name:
+      - cups
+      - cups-browsed
+      - cups-client
+      - printer-driver-gutenprint
+      - avahi-daemon
+      - ipp-usb
+    state: present
+    update_cache: true
+  become: true
+
+- name: Ensure CUPS services are enabled
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  become: true
+  loop:
+    - cups
+    - cups-browsed
+    - avahi-daemon
+
+- name: Ensure lpadmin group exists
+  ansible.builtin.group:
+    name: lpadmin
+    state: present
+  become: true
+
+- name: Ensure cups admin user is in lpadmin group
+  ansible.builtin.user:
+    name: "{{ cups_admin_user }}"
+    groups: lpadmin
+    append: true
+  become: true
+
+- name: Deploy cupsd.conf
+  ansible.builtin.template:
+    src: cupsd.conf.j2
+    dest: /etc/cups/cupsd.conf
+    owner: root
+    group: lp
+    mode: '0640'
+  become: true
+  notify: restart cups
+
+- name: Deploy PPD files
+  ansible.builtin.copy:
+    src: "{{ item.value.ppd_file }}"
+    dest: "/etc/cups/ppd/{{ item.value.ppd_file }}"
+    owner: root
+    group: lp
+    mode: '0640'
+  become: true
+  loop: "{{ cups_printers | dict2items }}"
+  when: item.value.ppd_file is defined
+  notify: restart cups
+
+- name: Create printers using lpadmin
+  ansible.builtin.shell: |
+    lpadmin -p {{ item.key }} \
+      -E \
+      -v "{{ item.value.device_uri }}" \
+      -m "everywhere" \
+      -D "{{ item.value.info }}" \
+      -L "{{ item.value.location }}" \
+      {% if item.value.ppd_file is defined %} -P /etc/cups/ppd/{{ item.value.ppd_file }} {% endif %} \
+      {% if item.value.shared | default(false) %} -o printer-is-shared=true {% else %} -o printer-is-shared=false {% endif %} \
+      {% if item.value.accepting | default(true) %} -o printer-is-accepting-jobs=true {% else %} -o printer-is-accepting-jobs=false {% endif %}
+  become: true
+  loop: "{{ cups_printers | dict2items }}"
+  register: lpadmin_result
+  changed_when: "'already exists' not in lpadmin_result.stderr | default('')"
+  failed_when:
+    - lpadmin_result.rc != 0
+    - "'already exists' not in lpadmin_result.stderr | default('')"
+  notify: restart cups
+
+- name: Ensure printers are accepting jobs
+  ansible.builtin.command: cupsaccept {{ item.key }}
+  become: true
+  loop: "{{ cups_printers | dict2items }}"
+  when: item.value.accepting | default(true)
+  changed_when: true
+
+- name: Ensure printers are enabled
+  ansible.builtin.command: cupsenable {{ item.key }}
+  become: true
+  loop: "{{ cups_printers | dict2items }}"
+  changed_when: true

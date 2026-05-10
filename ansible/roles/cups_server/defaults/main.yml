@@ -1,0 +1,29 @@
+---
+# Default variables for cups_server role
+
+# Whether to allow remote access to CUPS web interface and printing
+cups_allow_remote: true
+
+# Whether to enable CUPS browsing via Avahi/mDNS
+cups_browsing: true
+
+# Printer serial number (sensitive — set in secrets.yaml under cups.printerSerial)
+cups_printer_serial: "{{ cups.printerSerial | default('') }}"
+
+# Printer definitions to configure (keyed by name)
+cups_printers:
+  Canon_MG6100:
+    info: "Canon MG6150"
+    location: "Office"
+    model: "Canon MG6100 series - CUPS+Gutenprint v5.3.3"
+    device_uri: "usb://Canon/MG6100%20series?serial={{ cups_printer_serial }}&interface=1"
+    shared: true
+    accepting: true
+    # PPD file must exist in role files/ directory
+    ppd_file: "Canon_MG6100.ppd"
+
+# User to add to lpadmin group (must be created by other roles)
+cups_admin_user: "pi"
+
+# CUPS admin password (set in secrets.yaml under cups.adminPassword)
+cups_admin_password: "{{ cups.adminPassword | default('') }}"

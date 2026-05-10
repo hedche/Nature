@@ -1,0 +1,21 @@
+---
+- name: restart cups
+  ansible.builtin.systemd:
+    name: cups
+    state: restarted
+    enabled: true
+  become: true
+
+- name: restart avahi-daemon
+  ansible.builtin.systemd:
+    name: avahi-daemon
+    state: restarted
+    enabled: true
+  become: true
+
+- name: restart cups-browsed
+  ansible.builtin.systemd:
+    name: cups-browsed
+    state: restarted
+    enabled: true
+  become: true

@@ -1,0 +1,9 @@
+---
+# Playbook for the photon Raspberry Pi (CUPS print server)
+- name: Configure photon Raspberry Pi
+  hosts: photon
+  become: true
+  vars_files:
+    - ../secrets.yaml
+  roles:
+    - cups_server
