@@ -9,7 +9,7 @@ read -p "Are you setting up ssh or pushing? " option
 if [[ $option == "ssh" ]]; then
 
 	echo "Configuring ssh keys ..."
-	ssh-keygen -t ed25519 -C "montyrhodes8@gmail.com"
+	ssh-keygen -t ed25519 -C "your-email@example.com"
 
 elif [[ $option == "push" ]]; then
 

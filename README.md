@@ -6,41 +6,44 @@ Infrastructure-as-Code for the Nature homelab. A single-secrets-file approach to
 
 ```
                     ┌──────────────────┐
-                    │   Control Plane   │
+                    │     cereal       │
                     │   10.30.1.50     │
-                    │  (Laptop / Talos) │
+                    │  (control plane) │
                     └────────┬─────────┘
                              │
            ┌─────────────────┼─────────────────┐
            │                 │                 │
     ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
-    │  Worker 1   │  │  Worker 2   │  │  Worker 3   │
+    │    snap      │  │   crackle   │  │     pop     │
     │  10.30.1.51 │  │  10.30.1.52 │  │  10.30.1.53 │
+    │  (worker)   │  │  (worker)   │  │  (worker)   │
     └─────────────┘  └─────────────┘  └─────────────┘
 
     ┌──────────────────┐    ┌──────────────────┐
-    │   QNAP NAS       │    │   Raspberry Pi   │
-    │   (Storage)      │    │   (Home Assistant)│
+    │   QNAP NAS       │    │     photon       │
+    │   (storage)      │    │   (Raspberry Pi) │
     └──────────────────┘    └──────────────────┘
 ```
 
 ## Active Infrastructure
 
-| Component | Role | Address |
-|-----------|------|---------|
-| Talos Control Plane | Kubernetes control plane | `10.30.1.50` |
-| Talos Worker 1 | Kubernetes worker | `10.30.1.51` |
-| Talos Worker 2 | Kubernetes worker | `10.30.1.52` |
-| Talos Worker 3 | Kubernetes worker | `10.30.1.53` |
-| QNAP NAS | Network-attached storage | DHCP (nature.leafbit.uk) |
-| Raspberry Pi | Home Assistant | DHCP (nature.leafbit.uk) |
+| Hostname | Role | Address |
+|----------|------|---------|
+| `cereal` | Talos control plane | `10.30.1.50` |
+| `snap` | Talos worker | `10.30.1.51` |
+| `crackle` | Talos worker | `10.30.1.52` |
+| `pop` | Talos worker | `10.30.1.53` |
+| `photon` | Raspberry Pi — Home Assistant, CUPS | `10.30.1.90` |
+| QNAP NAS | Network-attached storage | — |
+
+Cluster name: **cereal** — API endpoint: `talos.nature.leafbit.uk:6443`
 
 ## Quick Start
 
 1. **Install dependencies:**
    ```bash
    # macOS
-   brew install talosctl yq
+   brew install talosctl yq kubectl
 
    # Linux
    curl -sL https://talos.dev/install | sh
@@ -60,15 +63,11 @@ Infrastructure-as-Code for the Nature homelab. A single-secrets-file approach to
    ./talos/generate-configs.sh
    ```
 
-4. **Apply to nodes:**
+4. **Bootstrap the cluster:**
    ```bash
-   # Control plane
-   talosctl apply-config --insecure --nodes 10.30.1.50 --file talos/generated/controlplane.yaml
-
-   # Workers
-   talosctl apply-config --insecure --nodes 10.30.1.51 --file talos/generated/worker.yaml
-   talosctl apply-config --insecure --nodes 10.30.1.52 --file talos/generated/worker.yaml
-   talosctl apply-config --insecure --nodes 10.30.1.53 --file talos/generated/worker.yaml
+   ./talos/bootstrap.sh            # Full cluster bootstrap
+   ./talos/bootstrap.sh apply snap # Apply config to a single node
+   ./talos/bootstrap.sh status     # Check cluster health
    ```
 
 ## Directory Layout
@@ -79,26 +78,32 @@ Infrastructure-as-Code for the Nature homelab. A single-secrets-file approach to
 ├── AGENTS.md                 # Conventions for AI agents working on this repo
 ├── README.md                 # This file
 ├── secrets.yaml              # Your local secrets (gitignored, never commit)
+├── ansible/
+│   ├── inventory.yml         # Ansible host inventory (photon)
+│   ├── photon.yml            # Playbook for Raspberry Pi setup
+│   └── roles/                # Ansible roles (cups_server, etc.)
 ├── talos/
 │   ├── README.md             # Talos-specific docs
-│   ├── controlplane.yaml     # Control plane template
-│   ├── worker.yaml           # Worker template
+│   ├── controlplane.yaml     # Control plane config template
+│   ├── worker.yaml           # Worker config template
+│   ├── patches/              # Per-node worker patches (snap, crackle, pop)
 │   ├── talosconfig.template  # talosctl client config template
 │   ├── secrets.yaml.template # Schema for secrets.yaml
 │   ├── generate-configs.sh   # Script: templates + secrets -> runnable configs
+│   ├── bootstrap.sh          # Full cluster bootstrap script
 │   └── generated/            # Output directory (gitignored)
 ├── kubernetes/               # Kubernetes manifests (future)
 ├── home-assistant/           # Home Assistant docs (future)
-├── scripts/                  # Utility scripts
+├── scripts/                  # Utility scripts (backup/restore secrets)
 └── deprecated/               # Historical configs (not in active use)
 ```
 
 ## Security Notes
 
 - **Never commit `secrets.yaml`** — it is gitignored by default.
-- **Back up `secrets.yaml` encrypted** (e.g. age, gpg, 1Password).
-- **Old secrets are in git history** — this repo previously contained plaintext secrets. You must rotate all Talos secrets (`talosctl gen secrets`) before the templates are safe to use.
-- **Generated configs are gitignored** — `talos/generated/` contains real credentials.
+- **Back up `secrets.yaml` encrypted** — use `./scripts/backup-secrets.sh` (requires [age](https://github.com/FiloSottile/age)).
+- **Generated configs are gitignored** — `talos/generated/`, `talos/kubeconfig`, and `talos/talosconfig` all contain real credentials.
+- All Talos config templates use `${PLACEHOLDER}` variables — no secrets are stored in tracked files.
 
 ## Deprecated Infrastructure
 

@@ -23,8 +23,14 @@ secrets/
 *.bak
 talos/generated/
 
+# PXE generated/deployed assets; may include Talos machine configs
+pxe/generated/
+pxe/.deploy/
+pxe/assets/
+
 # === Direnv ===
 .direnv/
 
-# === Generated Talos client config (loaded by direnv) ===
+# === Generated Talos configs (loaded by direnv) ===
 talos/talosconfig
+talos/kubeconfig
