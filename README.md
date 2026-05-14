@@ -19,10 +19,17 @@ Infrastructure-as-Code for the Nature homelab. A single-secrets-file approach to
     │  (worker)   │  │  (worker)   │  │  (worker)   │
     └─────────────┘  └─────────────┘  └─────────────┘
 
-    ┌──────────────────┐    ┌──────────────────┐
-    │   QNAP NAS       │    │     photon       │
-    │ (storage / PXE)  │    │   (Raspberry Pi) │
-    └──────────────────┘    └──────────────────┘
+    ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
+    │    QNAP NAS      │    │     arctic       │    │     hassio       │
+    │   10.30.1.20     │    │   10.30.1.21     │    │   10.30.1.60     │
+    │ (storage / PXE)  │    │ (WD MyCloud NAS) │    │ (Home Assistant) │
+    └──────────────────┘    └──────────────────┘    └──────────────────┘
+
+                    ┌──────────────────┐
+                    │     photon       │
+                    │   10.30.1.90     │
+                    │ (Raspberry Pi 3A+)│
+                    └──────────────────┘
 ```
 
 ## Active Infrastructure
@@ -33,8 +40,10 @@ Infrastructure-as-Code for the Nature homelab. A single-secrets-file approach to
 | `snap` | Talos worker | `10.30.1.51` |
 | `crackle` | Talos worker | `10.30.1.52` |
 | `pop` | Talos worker | `10.30.1.53` |
-| `photon` | Raspberry Pi — Home Assistant, CUPS | `10.30.1.90` |
-| QNAP NAS | Network-attached storage, PXE recovery server | `10.30.1.20` |
+| `photon` | Raspberry Pi 3A+ — CUPS | `10.30.1.90` |
+| `qnap` | QNAP NAS — network-attached storage, PXE recovery server | `10.30.1.20` |
+| `arctic` | WD MyCloud NAS 2TB | `10.30.1.21` |
+| `hassio` | Raspberry Pi 4B 4GB RAM — Home Assistant | `10.30.1.60` |
 
 Cluster name: **cereal** — API endpoint: `talos.nature.leafbit.uk:6443`
 
