@@ -1,0 +1,22 @@
+nodes:
+    - name: controlplane
+      role: controlplane
+      ip: 10.30.1.50
+      mac: "TODO"
+      talosConfig: controlplane.yaml
+    - name: snap
+      role: worker
+      ip: 10.30.1.51
+      mac: "TODO"
+      talosConfig: worker-snap.yaml
+    - name: crackle
+      role: worker
+      ip: 10.30.1.52
+      mac: "TODO"
+      talosConfig: worker-crackle.yaml
+    - name: pop
+      role: worker
+      ip: 10.30.1.53
+      mac: "TODO"
+      talosConfig: worker-pop.yaml
+

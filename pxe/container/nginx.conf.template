@@ -1,0 +1,38 @@
+worker_processes 1;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    sendfile on;
+
+    server {
+        listen ${HTTP_PORT};
+        server_name _;
+        root /srv/pxe/http;
+        autoindex off;
+
+        location = /boot.ipxe {
+            add_header Content-Type text/plain;
+            try_files $uri =404;
+        }
+
+        location /menus/ {
+            add_header Content-Type text/plain;
+            try_files $uri =404;
+        }
+
+        location /talos/ {
+            try_files $uri =404;
+        }
+
+        location /configs/ {
+            add_header Content-Type text/plain;
+            try_files $uri =404;
+        }
+    }
+}
+

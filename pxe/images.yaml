@@ -1,0 +1,18 @@
+talos:
+    version: v1.9.5
+    schematic: "376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba"
+    mode: image-factory
+    installerImage: ghcr.io/siderolabs/installer:v1.9.5
+    kernelArgs:
+        - talos.platform=metal
+        - slab_nomerge
+        - pti=on
+        - console=tty0
+        - printk.devkmsg=on
+
+images:
+    - id: talos-maintenance
+      label: Talos maintenance mode
+      type: talos
+      description: Boot Talos in RAM; apply config manually with talosctl.
+

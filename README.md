@@ -21,7 +21,7 @@ Infrastructure-as-Code for the Nature homelab. A single-secrets-file approach to
 
     ┌──────────────────┐    ┌──────────────────┐
     │   QNAP NAS       │    │     photon       │
-    │   (storage)      │    │   (Raspberry Pi) │
+    │ (storage / PXE)  │    │   (Raspberry Pi) │
     └──────────────────┘    └──────────────────┘
 ```
 
@@ -34,7 +34,7 @@ Infrastructure-as-Code for the Nature homelab. A single-secrets-file approach to
 | `crackle` | Talos worker | `10.30.1.52` |
 | `pop` | Talos worker | `10.30.1.53` |
 | `photon` | Raspberry Pi — Home Assistant, CUPS | `10.30.1.90` |
-| QNAP NAS | Network-attached storage | — |
+| QNAP NAS | Network-attached storage, PXE recovery server | `10.30.1.20` |
 
 Cluster name: **cereal** — API endpoint: `talos.nature.leafbit.uk:6443`
 
@@ -70,6 +70,17 @@ Cluster name: **cereal** — API endpoint: `talos.nature.leafbit.uk:6443`
    ./talos/bootstrap.sh status     # Check cluster health
    ```
 
+## PXE Recovery
+
+The QNAP NAS at `10.30.1.20` can run a containerized PXE recovery service for Talos reinstall/maintenance boots.
+
+```bash
+./pxe/deploy-to-qnap.sh
+./pxe/test-pxe.sh
+```
+
+By default, PXE boots Talos into maintenance mode and does **not** serve generated Talos configs. Unattended reinstall is available with an explicit opt-in flag; see `pxe/README.md`.
+
 ## Directory Layout
 
 ```
@@ -94,6 +105,7 @@ Cluster name: **cereal** — API endpoint: `talos.nature.leafbit.uk:6443`
 │   └── generated/            # Output directory (gitignored)
 ├── kubernetes/               # Kubernetes manifests (future)
 ├── home-assistant/           # Home Assistant docs (future)
+├── pxe/                      # QNAP-hosted PXE recovery service
 ├── scripts/                  # Utility scripts (backup/restore secrets)
 └── deprecated/               # Historical configs (not in active use)
 ```
@@ -103,9 +115,9 @@ Cluster name: **cereal** — API endpoint: `talos.nature.leafbit.uk:6443`
 - **Never commit `secrets.yaml`** — it is gitignored by default.
 - **Back up `secrets.yaml` encrypted** — use `./scripts/backup-secrets.sh` (requires [age](https://github.com/FiloSottile/age)).
 - **Generated configs are gitignored** — `talos/generated/`, `talos/kubeconfig`, and `talos/talosconfig` all contain real credentials.
+- **PXE generated assets are gitignored** — `pxe/generated/` may contain copied Talos machine configs when unattended reinstall mode is used.
 - All Talos config templates use `${PLACEHOLDER}` variables — no secrets are stored in tracked files.
 
 ## Deprecated Infrastructure
 
 Old Ubuntu server configs (`blackhole/`, `cloudmon/`, `habitat/`, etc.) have been moved to `deprecated/`. These are no longer maintained. See `deprecated/README.md` for details.
-

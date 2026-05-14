@@ -1,6 +1,17 @@
-# Talos Configuration
+# Talos Configuration — Cereal Cluster
 
-This directory contains Talos Linux configuration templates for the Nature Kubernetes cluster.
+This directory contains Talos Linux configuration templates for the **cereal** Kubernetes cluster.
+
+## Cluster Overview
+
+| Node | Role | IP | Patch |
+|------|------|----|-------|
+| (control plane) | controlplane | 10.30.1.50 | — |
+| snap | worker | 10.30.1.51 | `patches/snap.yaml` |
+| crackle | worker | 10.30.1.52 | `patches/crackle.yaml` |
+| pop | worker | 10.30.1.53 | `patches/pop.yaml` |
+
+Cluster endpoint: `https://talos.nature.leafbit.uk:6443`
 
 ## Directory Layout
 
@@ -9,7 +20,12 @@ talos/
 ├── controlplane.yaml         # Template for control plane node (with placeholders)
 ├── worker.yaml               # Template for worker nodes (with placeholders)
 ├── talosconfig.template      # Template for talosctl client config (with placeholders)
-├── .envrc                    # direnv: auto-sets TALOSCONFIG when you cd here
+├── patches/                  # Per-node config patches (merged with worker.yaml)
+│   ├── snap.yaml             # snap (worker, 10.30.1.51)
+│   ├── crackle.yaml          # crackle (worker, 10.30.1.52) — hostname + disk overrides
+│   └── pop.yaml              # pop (worker, 10.30.1.53)
+├── bootstrap.sh              # Full cluster bootstrap / per-node apply / status
+├── .envrc                    # direnv: auto-sets TALOSCONFIG + KUBECONFIG
 ├── secrets.yaml.template     # Schema for your local secrets.yaml
 ├── generate-configs.sh       # Script to inject secrets into templates
 ├── generated/                # Output directory for runnable configs (gitignored)
@@ -20,55 +36,129 @@ talos/
 
 - `talosctl` — Talos CLI ([install guide](https://www.talos.dev/v1.9/introduction/getting-started/))
 - `yq` — YAML processor (Go version, `brew install yq` or `go install github.com/mikefarah/yq/v4@latest`)
-- `secrets.yaml` — Your populated secrets file at repo root (copy from `secrets.yaml.template`)
+- `kubectl` — Kubernetes CLI
+- `age` — encryption tool for secrets backup (`brew install age`)
+- `secrets.yaml` — Your populated secrets file at repo root (see below)
 
-## Generating Configs
+## Quick Start — Full Cluster Bootstrap
 
-1. Copy the template and fill in your secrets:
-   ```bash
-   cp talos/secrets.yaml.template secrets.yaml
-   # Edit secrets.yaml with your values (or use `talosctl gen secrets -o secrets.yaml`)
-   ```
-
-2. Generate runnable configs:
-   ```bash
-   ./talos/generate-configs.sh
-   ```
-
-3. The script outputs to `talos/generated/`:
-   - `controlplane.yaml`
-   - `worker.yaml`
-   - `talosconfig`
-
-## Applying Configs
-
-**First control plane node:**
 ```bash
-talosctl apply-config --insecure --nodes 10.30.1.50 --file talos/generated/controlplane.yaml
+# 1. Set up secrets (first time only — see "Setting Up Secrets" below)
+cp talos/secrets.yaml.template secrets.yaml
+
+# 2. Bootstrap the entire cluster
+./talos/bootstrap.sh
 ```
 
-**Worker nodes:**
+The bootstrap script generates configs, applies them to all reachable nodes,
+bootstraps etcd, fetches the kubeconfig, and reports cluster health.
+Offline nodes are skipped — apply them later:
+
 ```bash
-talosctl apply-config --insecure --nodes 10.30.1.51 --file talos/generated/worker.yaml
-talosctl apply-config --insecure --nodes 10.30.1.52 --file talos/generated/worker.yaml
-talosctl apply-config --insecure --nodes 10.30.1.53 --file talos/generated/worker.yaml
+./talos/bootstrap.sh apply crackle    # single node
+./talos/bootstrap.sh status           # cluster health
 ```
+
+## Setting Up Secrets
+
+Generate fresh Talos secrets and extract them into the template format:
+
+```bash
+talosctl gen secrets -o /tmp/talos-secrets.yaml
+talosctl gen config cereal https://talos.nature.leafbit.uk:6443 \
+    --with-secrets /tmp/talos-secrets.yaml --output-dir /tmp/talos-gen
+cp talos/secrets.yaml.template secrets.yaml
+```
+
+Extract each value with `yq`:
+
+```bash
+yq '.machine.token'                     /tmp/talos-gen/controlplane.yaml  # → machineToken
+yq '.cluster.token'                     /tmp/talos-gen/controlplane.yaml  # → clusterToken
+yq '.cluster.id'                        /tmp/talos-gen/controlplane.yaml  # → clusterId
+yq '.cluster.secret'                    /tmp/talos-gen/controlplane.yaml  # → clusterSecret
+yq '.cluster.secretboxEncryptionSecret' /tmp/talos-gen/controlplane.yaml  # → secretboxEncryptionSecret
+yq '.machine.ca'                        /tmp/talos-gen/controlplane.yaml  # → machineCA
+yq '.cluster.ca'                        /tmp/talos-gen/controlplane.yaml  # → clusterCA
+yq '.cluster.aggregatorCA'              /tmp/talos-gen/controlplane.yaml  # → aggregatorCA
+yq '.cluster.etcd.ca'                   /tmp/talos-gen/controlplane.yaml  # → etcdCA
+yq '.cluster.serviceAccount.key'        /tmp/talos-gen/controlplane.yaml  # → serviceAccount.key
+yq '.contexts.cereal.crt'              /tmp/talos-gen/talosconfig         # → client.crt
+yq '.contexts.cereal.key'              /tmp/talos-gen/talosconfig         # → client.key
+```
+
+Clean up and generate real configs:
+
+```bash
+rm -rf /tmp/talos-secrets.yaml /tmp/talos-gen
+./talos/generate-configs.sh
+```
+
+## Backing Up & Restoring Secrets
+
+Secrets are encrypted with [age](https://github.com/FiloSottile/age) and stored in the repo as `secrets.yaml.age`.
+
+```bash
+# First time — generate an age key and store it in your password manager
+age-keygen -o ~/.config/age/nature.key
+
+# Encrypt
+./scripts/backup-secrets.sh
+
+# Restore on a new machine
+./scripts/restore-secrets.sh
+```
+
+## Per-Node Patches
+
+Each worker gets an explicit hostname via a patch in `patches/`.
+`generate-configs.sh` merges each `patches/<name>.yaml` with the base
+`worker.yaml`, producing `generated/worker-<name>.yaml`.
+
+Example (`patches/crackle.yaml`):
+
+```yaml
+machine:
+    network:
+        hostname: crackle
+    disks:
+        - deviceSelector:
+              match: 'disk.transport == "sata" && !disk.systemDisk && disk.size >= 900u * GB'
+          partitions:
+              - mountpoint: /var/mnt/storage
+```
+
+### Hardware Reference
+
+| Node | Install Disk | Storage Disk |
+|------|-------------|-------------|
+| control plane | SATA (ata1 bus) | — |
+| snap | NVMe (TBD) | TBD |
+| crackle | Micron 2200S NVMe 256GB | KIOXIA-EXCERIA S 960GB (SATA) |
+| pop | NVMe (TBD) | TBD |
+
+## PXE Recovery Reinstall
+
+The QNAP NAS can serve a PXE recovery menu from `10.30.1.20`; see `../pxe/README.md`.
+
+Default flow:
+
+```bash
+./pxe/deploy-to-qnap.sh
+# Boot the target node from PXE and select "Talos maintenance mode".
+./talos/bootstrap.sh apply <node>
+./talos/bootstrap.sh status
+```
+
+The default PXE menu does not expose generated Talos machine configs. If you intentionally use unattended reinstall mode, `./pxe/deploy-to-qnap.sh --include-talos-configs` copies files from `talos/generated/` into `pxe/generated/http/configs/` before deploying. Those files contain cluster secrets and should only be served on a trusted provisioning network, then removed by redeploying without that flag.
 
 ## Rotating Secrets
 
-1. Generate new secrets:
-   ```bash
-   talosctl gen secrets -o secrets.yaml
-   ```
+```bash
+talosctl gen secrets -o secrets.yaml
+./talos/generate-configs.sh
+./talos/bootstrap.sh
+./scripts/backup-secrets.sh
+```
 
-2. Regenerate configs:
-   ```bash
-   ./talos/generate-configs.sh
-   ```
-
-3. Apply to cluster (requires bootstrap):
-   ```bash
-   talosctl bootstrap --nodes 10.30.1.50
-   ```
-
-> ⚠️ **Critical**: The old secrets from the original repo are in git history. Rotate them immediately.
+> **Critical**: The old secrets from the original repo are in git history. Rotate them immediately.

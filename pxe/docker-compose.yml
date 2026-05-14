@@ -1,0 +1,16 @@
+services:
+    pxe:
+        build: ./container
+        image: nature-pxe:local
+        container_name: nature-pxe
+        network_mode: host
+        restart: unless-stopped
+        environment:
+            PXE_SERVER_IP: 10.30.1.20
+            HTTP_PORT: "8080"
+            PXE_DHCP_RANGE: 10.30.1.0,proxy,255.255.255.0
+        cap_add:
+            - NET_ADMIN
+        volumes:
+            - ./generated/http:/srv/pxe/http:ro
+
