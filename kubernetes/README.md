@@ -16,5 +16,5 @@ kubernetes/
 ## Secret Management
 
 - Never commit plaintext secrets to this repo.
-- Use Sealed Secrets, External Secrets Operator, or SOPS for Kubernetes secrets.
-- The root `secrets.yaml` (gitignored) holds Talos-level secrets only.
+- Kubernetes application secrets are managed via `scripts/secrets.sh` and stored in the same root `secrets.yaml` under the `kubernetes.secrets` key. One file for all secrets.
+- The script base64-encodes values when constructing K8s manifests at push time.

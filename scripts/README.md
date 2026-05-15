@@ -10,6 +10,7 @@ Utility scripts for managing the Nature homelab.
 | `deploy-to-qnap.sh` | In `pxe/` — deploys the QNAP PXE recovery stack |
 | `generate-assets.sh` | In `pxe/` — generates iPXE menus from declarative YAML |
 | `test-pxe.sh` | In `pxe/` — validates the deployed PXE HTTP/TFTP/Compose service |
+| `secrets.sh` | Manage Kubernetes secrets (create, import, push, list, validate) |
 
 ## Adding Scripts
 

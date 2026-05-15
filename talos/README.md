@@ -37,7 +37,6 @@ talos/
 - `talosctl` — Talos CLI ([install guide](https://www.talos.dev/v1.9/introduction/getting-started/))
 - `yq` — YAML processor (Go version, `brew install yq` or `go install github.com/mikefarah/yq/v4@latest`)
 - `kubectl` — Kubernetes CLI
-- `age` — encryption tool for secrets backup (`brew install age`)
 - `secrets.yaml` — Your populated secrets file at repo root (see below)
 
 ## Quick Start — Full Cluster Bootstrap
@@ -96,18 +95,11 @@ rm -rf /tmp/talos-secrets.yaml /tmp/talos-gen
 
 ## Backing Up & Restoring Secrets
 
-Secrets are encrypted with [age](https://github.com/FiloSottile/age) and stored in the repo as `secrets.yaml.age`.
-
-```bash
-# First time — generate an age key and store it in your password manager
-age-keygen -o ~/.config/age/nature.key
-
-# Encrypt
-./scripts/backup-secrets.sh
-
-# Restore on a new machine
-./scripts/restore-secrets.sh
-```
+Secrets live in a single `secrets.yaml` at the repo root. Back this file up using
+your preferred secure mechanism (e.g., encrypted password-manager export, or
+any external secret storage you already trust). To reproduce the cluster from
+scratch, place `secrets.yaml` in the repo root and run `./talos/generate-configs.sh`
+followed by `./talos/bootstrap.sh`.
 
 ## Per-Node Patches
 
@@ -158,7 +150,7 @@ The default PXE menu does not expose generated Talos machine configs. If you int
 talosctl gen secrets -o secrets.yaml
 ./talos/generate-configs.sh
 ./talos/bootstrap.sh
-./scripts/backup-secrets.sh
 ```
 
 > **Critical**: The old secrets from the original repo are in git history. Rotate them immediately.
+n git history. Rotate them immediately.

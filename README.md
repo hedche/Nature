@@ -122,7 +122,7 @@ By default, PXE boots Talos into maintenance mode and does **not** serve generat
 ## Security Notes
 
 - **Never commit `secrets.yaml`** — it is gitignored by default.
-- **Back up `secrets.yaml` encrypted** — use `./scripts/backup-secrets.sh` (requires [age](https://github.com/FiloSottile/age)).
+- **Back up `secrets.yaml` securely** — use your preferred encrypted password-manager export or any external secret storage you already trust.
 - **Generated configs are gitignored** — `talos/generated/`, `talos/kubeconfig`, and `talos/talosconfig` all contain real credentials.
 - **PXE generated assets are gitignored** — `pxe/generated/` may contain copied Talos machine configs when unattended reinstall mode is used.
 - All Talos config templates use `${PLACEHOLDER}` variables — no secrets are stored in tracked files.
