@@ -11,7 +11,7 @@ This directory contains Talos Linux configuration templates for the **cereal** K
 | crackle | worker | 10.30.1.52 | `patches/crackle.yaml` |
 | pop | worker | 10.30.1.53 | `patches/pop.yaml` |
 
-Cluster endpoint: `https://talos.nature.leafbit.uk:6443`
+Cluster endpoint: `https://cereal.nature.leafbit.uk:6443`
 
 ## Directory Layout
 
@@ -65,7 +65,7 @@ Generate fresh Talos secrets and extract them into the template format:
 
 ```bash
 talosctl gen secrets -o /tmp/talos-secrets.yaml
-talosctl gen config cereal https://talos.nature.leafbit.uk:6443 \
+talosctl gen config cereal https://cereal.nature.leafbit.uk:6443 \
     --with-secrets /tmp/talos-secrets.yaml --output-dir /tmp/talos-gen
 cp talos/secrets.yaml.template secrets.yaml
 ```

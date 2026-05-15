@@ -425,7 +425,7 @@ cluster:
     secret: ${TALOS_CLUSTER_SECRET} # Shared secret of cluster (base64 encoded random 32 bytes).
     # Provides control plane specific configuration options.
     controlPlane:
-        endpoint: https://talos.nature.leafbit.uk:6443 # Endpoint is the canonical controlplane endpoint, which can be an IP address or a DNS hostname.
+        endpoint: https://cereal.nature.leafbit.uk:6443 # Endpoint is the canonical controlplane endpoint, which can be an IP address or a DNS hostname.
     clusterName: cereal # Configures the cluster's name.
     # Provides cluster specific network configuration options.
     network:
@@ -458,7 +458,7 @@ cluster:
         image: registry.k8s.io/kube-apiserver:v1.32.3 # The container image used in the API server manifest.
         # Extra certificate subject alternative names for the API server's certificate.
         certSANs:
-            - talos.nature.leafbit.uk
+            - cereal.nature.leafbit.uk
         disablePodSecurityPolicy: true # Disable PodSecurityPolicy in the API server and default manifests.
         # Configure the API server admission plugins.
         admissionControl:

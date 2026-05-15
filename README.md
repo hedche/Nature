@@ -45,7 +45,7 @@ Infrastructure-as-Code for the Nature homelab. A single-secrets-file approach to
 | `arctic` | WD MyCloud NAS 2TB | `10.30.1.21` |
 | `hassio` | Raspberry Pi 4B 4GB RAM — Home Assistant | `10.30.1.60` |
 
-Cluster name: **cereal** — API endpoint: `talos.nature.leafbit.uk:6443`
+Cluster name: **cereal** — API endpoint: `cereal.nature.leafbit.uk:6443`
 
 ## Quick Start
 

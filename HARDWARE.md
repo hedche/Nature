@@ -23,12 +23,12 @@ All hardware discovered from live nodes via `talosctl get disks -i`, `get linkst
 
 | Component | Detail |
 |-----------|--------|
-| **Chassis** | HP EliteDesk (same model as snap/pop) |
-| **CPU** | TBD — same hardware class as snap/pop |
-| **RAM** | TBD |
-| **NIC** | TBD — `eno1` |
-| **Install Disk** | Micron 2200S NVMe 256 GB — wwid `eui.000000000000000100a0752025d26ea0` |
-| **Storage Disk** | KIOXIA EXCERIA SATA SSD 960 GB — left raw for future HA storage pool |
+| **Chassis** | Dell OptiPlex 7060, serial `DD2FZT2` |
+| **CPU** | Intel i5-8500T (6C/6T @ 2.10GHz) |
+| **RAM** | 16 GB (2× 8 GB DDR4 — Micron 8ATF1G64HZ-2G6D1 + SK Hynix HMA81GS6AFR8N-UH) |
+| **NIC** | `eno1` (6c:2b:59:d2:b8:9b) |
+| **Install Disk** | Micron 2200S NVMe 256 GB — `/dev/nvme0n1`, wwid `eui.000000000000000100a0752025d26ea0` |
+| **Storage Disk** | KIOXIA EXCERIA S SATA 960 GB — `/dev/sda`, wwid `naa.58ce38e801936b06` |
 
 ---
 
@@ -36,12 +36,12 @@ All hardware discovered from live nodes via `talosctl get disks -i`, `get linkst
 
 | Component | Detail |
 |-----------|--------|
-| **Chassis** | HP EliteDesk (same model as crackle/pop) |
-| **CPU** | TBD |
-| **RAM** | TBD |
-| **NIC** | TBD — `eno1` |
-| **Install Disk** | NVMe — wwid TBD (node not yet discovered) |
-| **Storage Disk** | SATA SSD — TBD |
+| **Chassis** | Dell OptiPlex 7060, serial `F32YZS2` |
+| **CPU** | Intel i5-8500T (6C/6T @ 2.10GHz) |
+| **RAM** | 16 GB (2× 8 GB DDR4 — Micron 8ATF1G64HZ-2G6E1 + 8ATF1G64HZ-2G6D1) |
+| **NIC** | `eno2` (54:bf:64:97:dd:49) |
+| **Install Disk** | Micron 2200S NVMe 256 GB — `/dev/nvme0n1`, wwid `eui.000000000000000100a075202702db5f` |
+| **Storage Disk** | KIOXIA EXCERIA S SATA 960 GB — `/dev/sda`, wwid `naa.58ce38e801936a51` |
 
 ---
 
@@ -49,12 +49,12 @@ All hardware discovered from live nodes via `talosctl get disks -i`, `get linkst
 
 | Component | Detail |
 |-----------|--------|
-| **Chassis** | HP EliteDesk (same model as crackle/snap) |
-| **CPU** | TBD |
-| **RAM** | TBD |
-| **NIC** | TBD — `eno1` |
-| **Install Disk** | NVMe — wwid TBD (node not yet discovered) |
-| **Storage Disk** | SATA SSD — TBD |
+| **Chassis** | Dell OptiPlex 7060, serial `DCRDZT2` |
+| **CPU** | Intel i5-8500T (6C/6T @ 2.10GHz) |
+| **RAM** | 16 GB (2× 8 GB DDR4 — Crucial KHYXPX-MIE) |
+| **NIC** | `eno1` (6c:2b:59:d2:a4:80) |
+| **Install Disk** | KIOXIA KXG60ZNV256G NVMe 256 GB — `/dev/nvme0n1`, wwid `eui.00000000000000018ce38e0300290b0b` |
+| **Storage Disk** | KIOXIA EXCERIA S SATA 960 GB — `/dev/sda`, wwid `naa.58ce38e801936c18` |
 
 ---
 
@@ -77,6 +77,6 @@ Used in Talos machine configs to target the correct install disk per node.
 | Node | Selector | Value |
 |------|----------|-------|
 | cereal | `wwid` | `naa.5002538d41d60108` |
+| snap | `disk` | `/dev/nvme0n1` |
 | crackle | `wwid` | `eui.000000000000000100a0752025d26ea0` |
-| snap | `wwid` | TBD |
-| pop | `wwid` | TBD |
+| pop | `disk` | `/dev/nvme0n1` |
