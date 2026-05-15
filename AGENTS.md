@@ -29,7 +29,15 @@ Every change must be reproducible from this repo + the single secrets file.
 - Add any new placeholder to `secrets.yaml.template` with a comment explaining how to generate it.
 - Run `bash -n talos/generate-configs.sh` to check script syntax after changes.
 
-## 5. Kubernetes manifests
+## 5. No manual kubectl changes — avoid cluster drift
+
+All cluster state must be reproducible from this repo. Never apply ad-hoc `kubectl` commands (labels, annotations, RBAC, etc.) that aren't captured in a script or manifest.
+
+- **Node labels**: Worker role labels (`node-role.kubernetes.io/worker`) are applied by `talos/bootstrap.sh` (the `apply-labels` command). Don't label nodes manually.
+- **Any new kubectl-managed state** (labels, annotations, taints, RBAC bindings, namespaces, etc.) must be added to `talos/bootstrap.sh` or a Kubernetes manifest in `kubernetes/` so it is reapplied on a full cluster wipe and re-bootstrap.
+- **NodeRestriction caveat**: Kubelets cannot self-assign `node-role.kubernetes.io/*` labels (blocked by Kubernetes admission control). These must be applied from an admin kubeconfig, which is why they live in the bootstrap script rather than in `machine.nodeLabels` in Talos configs.
+
+## 6. Kubernetes manifests
 
 - Place in `kubernetes/` directory.
 - Use Kustomize or Helm values files for environment-specific config.

@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Bootstrap the cereal Talos Kubernetes cluster.
+# Idempotent — safe to re-run on an already-running cluster.
 #
 # Usage:
 #   ./talos/bootstrap.sh                  # Full cluster bootstrap
 #   ./talos/bootstrap.sh apply <node>     # Apply config to a single node
+#   ./talos/bootstrap.sh apply-labels     # Apply k8s labels to all workers
+#   ./talos/bootstrap.sh apply-labels <n> # Apply k8s labels to a single node
 #   ./talos/bootstrap.sh status           # Check cluster health
 #
 # Nodes:
@@ -102,7 +105,15 @@ wait_for_talos_api() {
     info "${node} Talos API is up."
 }
 
+# --- Check if a node is running with authenticated Talos API ---
+node_is_authenticated() {
+    local ip="$1"
+    talosctl version --nodes "$ip" --talosconfig "$TALOSCONFIG" &>/dev/null 2>&1
+}
+
 # --- Apply config to a single node ---
+# Tries authenticated mode first (running cluster), falls back to --insecure
+# (maintenance mode / first boot).
 apply_node() {
     local node="$1"
     local ip; ip="$(node_ip "$node")"
@@ -114,24 +125,42 @@ apply_node() {
     fi
 
     info "Applying config to ${node} (${ip}) using ${config##*/}..."
-    talosctl apply-config \
-        --nodes "$ip" \
-        --file "$config" \
-        --insecure
+    if node_is_authenticated "$ip"; then
+        talosctl apply-config \
+            --nodes "$ip" \
+            --file "$config" \
+            --talosconfig "$TALOSCONFIG"
+    else
+        talosctl apply-config \
+            --nodes "$ip" \
+            --file "$config" \
+            --insecure
+    fi
     info "Config applied to ${node}."
 }
 
+# --- Check if etcd is already bootstrapped ---
+etcd_is_running() {
+    local ip="$1"
+    talosctl service etcd --nodes "$ip" --talosconfig "$TALOSCONFIG" 2>/dev/null \
+        | grep -q "Running" 2>/dev/null
+}
+
 # --- Bootstrap the control plane (first-time etcd init) ---
+# Idempotent: skips if etcd is already running.
 bootstrap_controlplane() {
     local ip; ip="$(node_ip controlplane)"
-
-    info "Bootstrapping etcd on control plane (${ip})..."
-    info "Waiting for node to be ready for bootstrap..."
 
     # After apply-config the node reboots into the new config.
     # Wait for the Talos API to come up with proper auth.
     wait_for_talos_api "controlplane" 600
 
+    if etcd_is_running "$ip"; then
+        info "etcd already running on ${ip} — skipping bootstrap."
+        return
+    fi
+
+    info "Bootstrapping etcd on control plane (${ip})..."
     talosctl bootstrap \
         --nodes "$ip" \
         --talosconfig "$TALOSCONFIG"
@@ -139,17 +168,75 @@ bootstrap_controlplane() {
 }
 
 # --- Fetch kubeconfig ---
+# Skips if a working kubeconfig already exists.
 fetch_kubeconfig() {
     local ip; ip="$(node_ip controlplane)"
     local kubeconfig="${SCRIPT_DIR}/kubeconfig"
+
+    if [[ -f "$kubeconfig" ]] && kubectl --kubeconfig "$kubeconfig" get nodes &>/dev/null 2>&1; then
+        info "Kubeconfig already exists and works — skipping fetch."
+        return
+    fi
 
     info "Fetching kubeconfig..."
     talosctl kubeconfig "$kubeconfig" \
         --nodes "$ip" \
         --talosconfig "$TALOSCONFIG" \
         --force
+    # Replace DNS endpoint with IP if the DNS name doesn't resolve yet.
+    # This prevents the kubeconfig from becoming unusable before DNS is configured.
+    local endpoint
+    endpoint="$(grep -o 'https://[^:]*:6443' "$kubeconfig" | head -1)"
+    local hostname="${endpoint#https://}"
+    hostname="${hostname%:6443}"
+    if [[ "$hostname" != "$ip" ]] && ! host "$hostname" &>/dev/null 2>&1; then
+        warn "DNS for ${hostname} not resolvable — using IP ${ip} in kubeconfig."
+        sed -i '' "s|${endpoint}|https://${ip}:6443|" "$kubeconfig" 2>/dev/null \
+            || sed -i "s|${endpoint}|https://${ip}:6443|" "$kubeconfig"
+    fi
     info "Kubeconfig saved to ${kubeconfig}"
     info "(direnv will auto-export KUBECONFIG when you cd into talos/)"
+}
+
+# --- Apply Kubernetes labels that kubelets cannot self-assign ---
+# NodeRestriction admission prevents kubelets from setting node-role.kubernetes.io/*
+# labels, so we apply them from an admin kubeconfig after the API is up.
+apply_node_labels() {
+    local kubeconfig="${SCRIPT_DIR}/kubeconfig"
+    local node="${1:-}"
+
+    if [[ ! -f "$kubeconfig" ]]; then
+        warn "No kubeconfig found — skipping node label application."
+        return
+    fi
+
+    if [[ -n "$node" ]]; then
+        # Label a single node
+        local nodes_to_label="$node"
+    else
+        # Label all workers
+        local nodes_to_label="$WORKERS"
+    fi
+
+    for n in $nodes_to_label; do
+        # Only label worker nodes
+        local is_worker=false
+        for w in $WORKERS; do
+            [[ "$w" == "$n" ]] && is_worker=true
+        done
+        if ! $is_worker; then
+            continue
+        fi
+
+        if kubectl --kubeconfig "$kubeconfig" get node "$n" &>/dev/null 2>&1; then
+            kubectl --kubeconfig "$kubeconfig" label node "$n" \
+                node-role.kubernetes.io/worker= --overwrite &>/dev/null
+            info "Labeled ${n} as worker."
+        else
+            warn "Node ${n} not yet registered in Kubernetes — label later with:"
+            warn "  $0 apply-labels ${n}"
+        fi
+    done
 }
 
 # --- Wait for Kubernetes API ---
@@ -237,7 +324,10 @@ full_bootstrap() {
     info "=== Phase 5: Wait for Kubernetes ==="
     wait_for_k8s_api
 
-    info "=== Phase 6: Cluster status ==="
+    info "=== Phase 6: Apply node labels ==="
+    apply_node_labels
+
+    info "=== Phase 7: Cluster status ==="
     cluster_status
 
     echo ""
@@ -256,6 +346,15 @@ case "${1:-}" in
         check_prereqs
         generate_configs
         apply_node "$node"
+        apply_node_labels "$node"
+        ;;
+    apply-labels)
+        node="${2:-}"
+        if [[ -n "$node" ]] && ! node_ip "$node" >/dev/null 2>&1; then
+            die "Unknown node: ${node}\nValid nodes: ${ALL_NODES}"
+        fi
+        check_prereqs
+        apply_node_labels "$node"
         ;;
     status)
         check_prereqs
@@ -265,12 +364,14 @@ case "${1:-}" in
         full_bootstrap
         ;;
     *)
-        echo "Usage: $0 [apply <node> | status]"
+        echo "Usage: $0 [apply <node> | apply-labels [node] | status]"
         echo ""
         echo "Commands:"
-        echo "  (none)         Full cluster bootstrap"
-        echo "  apply <node>   Apply config to a single node"
-        echo "  status         Show cluster health"
+        echo "  (none)             Full cluster bootstrap"
+        echo "  apply <node>       Apply config to a single node (+ labels)"
+        echo "  apply-labels       Apply k8s labels to all worker nodes"
+        echo "  apply-labels <n>   Apply k8s labels to a single node"
+        echo "  status             Show cluster health"
         echo ""
         echo "Nodes: controlplane snap crackle pop"
         exit 1

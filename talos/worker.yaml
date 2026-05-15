@@ -406,8 +406,9 @@ machine:
     #               type: RLIMIT_NOFILE
 
     # # Configures the node labels for the machine.
-
-    # # node labels example.
+    # # Note: node-role.kubernetes.io/* labels are protected by NodeRestriction
+    # # admission and cannot be self-assigned by kubelets. Apply them via kubectl:
+    # #   kubectl label node <name> node-role.kubernetes.io/worker=
     # nodeLabels:
     #     exampleLabel: exampleLabelValue
 
