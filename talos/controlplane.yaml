@@ -69,7 +69,8 @@ machine:
         #         - '!10.0.0.3/32'
         #         - fdc7::/16
     # Provides machine specific network configuration options.
-    network: {}
+    network:
+        hostname: cereal
     # # `interfaces` is used to define the network interface configuration.
     # interfaces:
     #     - interface: enp0s1 # The interface name.
@@ -189,15 +190,12 @@ machine:
     # Used to provide instructions for installations.
     install:
         # disk: /dev/sdb # The disk used for installations.
-        image: ghcr.io/siderolabs/installer:v1.9.5 # Allows for supplying the image used to perform the installation.
+        image: ghcr.io/siderolabs/installer:v1.13.2 # Allows for supplying the image used to perform the installation.
         wipe: true # Indicates if the installation disk should be wiped at installation time.
         
         # # Look up disk using disk attributes like model, size, serial and others.
         diskSelector:
-            busPath: /pci0000:00/0000:00:17.0/ata1/host1/target1:0:0/1:0:0:0
-        #     size: 4GB # Disk size.
-        #     model: WDC* # Disk model `/sys/block/<dev>/device/model`.
-        #     busPath: /pci0000:00/0000:00:17.0/ata1/host0/target0:0:0/0:0:0:0 # Disk bus path.
+            wwid: naa.5002538d41d60108
 
         # # Allows for supplying extra kernel args via the bootloader.
         # extraKernelArgs:
@@ -247,7 +245,7 @@ machine:
         # Configures host DNS caching resolver.
         hostDNS:
             enabled: true # Enable host DNS caching resolver.
-            forwardKubeDNSToHost: true # Use the host DNS resolver as upstream for Kubernetes CoreDNS pods.
+            forwardKubeDNSToHost: false # Disabled for Cilium BPF host routing compatibility.
         
         # # Configure Talos API access from Kubernetes pods.
         # kubernetesTalosAPIAccess:
@@ -439,12 +437,9 @@ cluster:
         serviceSubnets:
             - 10.96.0.0/12
         
-        # # The CNI used.
-        # cni:
-        #     name: custom # Name of CNI to use.
-        #     # URLs containing manifests to apply for the CNI.
-        #     urls:
-        #         - https://docs.projectcalico.org/archive/v3.20/manifests/canal.yaml
+        # Cilium CNI — installed via inline manifest, replaces default Flannel + kube-proxy
+        cni:
+            name: none
     token: ${TALOS_CLUSTER_TOKEN} # The [bootstrap token](https://kubernetes.io/docs/reference/access-authn-authz/bootstrap-tokens/) used to join the cluster.
     secretboxEncryptionSecret: ${TALOS_SECRETBOX_KEY} # A key used for the [encryption of secret data at rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/).
     # The base64 encoded root certificate authority used by Kubernetes.
@@ -521,10 +516,7 @@ cluster:
         image: registry.k8s.io/kube-controller-manager:v1.32.3 # The container image used in the controller manager manifest.
     # Kube-proxy server-specific configuration options
     proxy:
-        image: registry.k8s.io/kube-proxy:v1.32.3 # The container image used in the kube-proxy manifest.
-        
-        # # Disable kube-proxy deployment on cluster bootstrap.
-        # disabled: false
+        disabled: true # Cilium handles service routing via eBPF
     # Scheduler server specific configuration options.
     scheduler:
         image: registry.k8s.io/kube-scheduler:v1.32.3 # The container image used in the scheduler manifest.
@@ -558,14 +550,95 @@ cluster:
     #   - https://www.example.com/manifest1.yaml
     #   - https://www.example.com/manifest2.yaml
 
-    # A list of inline Kubernetes manifests.
-    inlineManifests: []
-    #   - name: namespace-ci # Name of the manifest.
-    #     contents: |- # Manifest contents as a string.
-    #       apiVersion: v1
-    #       kind: Namespace
-    #       metadata:
-    #       	name: ci
+    # Cilium CNI installed via inline manifest (Job runs cilium-cli on bootstrap)
+    inlineManifests:
+        - name: cilium
+          contents: |
+            ---
+            apiVersion: v1
+            kind: ServiceAccount
+            metadata:
+              name: cilium-install
+              namespace: kube-system
+            ---
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            metadata:
+              name: cilium-install
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: ClusterRole
+              name: cluster-admin
+            subjects:
+            - kind: ServiceAccount
+              name: cilium-install
+              namespace: kube-system
+            ---
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: cilium-install
+              namespace: kube-system
+            spec:
+              backoffLimit: 10
+              template:
+                metadata:
+                  labels:
+                    app: cilium-install
+                spec:
+                  restartPolicy: OnFailure
+                  tolerations:
+                    - operator: Exists
+                    - effect: NoSchedule
+                      operator: Exists
+                    - effect: NoExecute
+                      operator: Exists
+                    - effect: PreferNoSchedule
+                      operator: Exists
+                    - key: node-role.kubernetes.io/control-plane
+                      operator: Exists
+                      effect: NoSchedule
+                  affinity:
+                    nodeAffinity:
+                      requiredDuringSchedulingIgnoredDuringExecution:
+                        nodeSelectorTerms:
+                          - matchExpressions:
+                              - key: node-role.kubernetes.io/control-plane
+                                operator: Exists
+                  serviceAccount: cilium-install
+                  serviceAccountName: cilium-install
+                  hostNetwork: true
+                  containers:
+                  - name: cilium-install
+                    image: quay.io/cilium/cilium-cli-ci:latest
+                    env:
+                      - name: KUBERNETES_SERVICE_HOST
+                        value: "localhost"
+                      - name: KUBERNETES_SERVICE_PORT
+                        value: "7445"
+                    command:
+                      - cilium
+                      - install
+                      - --set
+                      - ipam.mode=kubernetes
+                      - --set
+                      - kubeProxyReplacement=true
+                      - --set
+                      - securityContext.capabilities.ciliumAgent={CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}
+                      - --set
+                      - securityContext.capabilities.cleanCiliumState={NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}
+                      - --set
+                      - cgroup.autoMount.enabled=false
+                      - --set
+                      - cgroup.hostRoot=/sys/fs/cgroup
+                      - --set
+                      - k8sServiceHost=localhost
+                      - --set
+                      - k8sServicePort=7445
+                      - --set
+                      - hubble.relay.enabled=true
+                      - --set
+                      - hubble.ui.enabled=true
 
     
     # # A key used for the [encryption of secret data at rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/).

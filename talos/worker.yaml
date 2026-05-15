@@ -32,15 +32,15 @@ machine:
         #     key: value
 
         # # The `extraMounts` field is used to add additional mounts to the kubelet container.
-        extraMounts:
-            - destination: /var/mnt/storage # Destination is the absolute path where the mount will be placed in the container.
-              type: bind # Type specifies the mount kind.
-              source: /var/mnt/storage # Source specifies the source path of the mount.
-        #       # Options are fstab style mount options.
-              options:
-                - bind
-                - rshared
-                - rw
+        # # The `extraMounts` field is used to add additional mounts to the kubelet container.
+        # extraMounts:
+        #     - destination: /var/lib/example
+        #       type: bind
+        #       source: /var/lib/example
+        #       options:
+        #         - bind
+        #         - rshared
+        #         - rw
 
         # # The `extraConfig` field is used to provide kubelet configuration overrides.
         # extraConfig:
@@ -189,14 +189,12 @@ machine:
     # Used to provide instructions for installations.
     install:
         # disk: /dev/sda # The disk used for installations.
-        image: ghcr.io/siderolabs/installer:v1.9.5 # Allows for supplying the image used to perform the installation.
+        image: ghcr.io/siderolabs/installer:v1.13.2 # Allows for supplying the image used to perform the installation.
         wipe: true # Indicates if the installation disk should be wiped at installation time.
         
-        # # Look up disk using disk attributes like model, size, serial and others.
-        diskSelector:
-        #     size: 4GB # Disk size.
-        #     model: WDC* # Disk model `/sys/block/<dev>/device/model`.
-            busPath: /pci0000:00/0000:00:1b.0/0000:01:00.0/nvme
+        # Install disk set per-node in patches/ using wwid for stability.
+        # All workers install to NVMe. SATA SSDs are left raw for HA storage pool.
+        diskSelector: {}
 
         # # Allows for supplying extra kernel args via the bootloader.
         # extraKernelArgs:
@@ -246,7 +244,7 @@ machine:
         # Configures host DNS caching resolver.
         hostDNS:
             enabled: true # Enable host DNS caching resolver.
-            forwardKubeDNSToHost: true # Use the host DNS resolver as upstream for Kubernetes CoreDNS pods.
+            forwardKubeDNSToHost: false # Disabled for Cilium BPF host routing compatibility.
         
         # # Configure Talos API access from Kubernetes pods.
         # kubernetesTalosAPIAccess:
@@ -285,11 +283,12 @@ machine:
     # # Used to partition, format and mount additional disks.
 
     # # MachineDisks list example.
-    disks:
-        - device: /dev/sda # The name of the disk to use.
-    #       # A list of partitions to create on the disk.
-          partitions:
-              - mountpoint: /var/mnt/storage # Where to mount the partition.
+    # # SATA SSDs are intentionally left unmanaged — reserved for HA storage pool
+    # # (e.g. Rook-Ceph, Longhorn). Do NOT add machine.disks entries for them.
+    # disks:
+    #     - device: /dev/sda
+    #       partitions:
+    #           - mountpoint: /var/mnt/storage
     #           
     #           # # The size of partition: either bytes or human readable representation. If `size:` is omitted, the partition is sized to occupy the full disk.
 

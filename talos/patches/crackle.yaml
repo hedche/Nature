@@ -1,0 +1,13 @@
+# Per-node patch for crackle (worker, 10.30.1.52)
+#
+# Hardware (verified 2026-05-14):
+#   NVMe: Micron 2200S 256GB — OS install (wwid: eui.000000000000000100a0752025d26ea0)
+#   SATA: KIOXIA-EXCERIA S 960GB — left raw for HA storage pool
+#   Network: eno1 (DHCP)
+
+machine:
+    network:
+        hostname: crackle
+    install:
+        diskSelector:
+            wwid: eui.000000000000000100a0752025d26ea0
