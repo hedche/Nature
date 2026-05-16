@@ -52,6 +52,12 @@ spec:
         memory: 128Mi
       limits:
         memory: 256Mi
+    volumeMounts:
+      - name: headlamp-config
+        mountPath: /home/headlamp/.config
+    volumes:
+      - name: headlamp-config
+        emptyDir: {}
     securityContext:
       allowPrivilegeEscalation: false
       readOnlyRootFilesystem: true
@@ -64,4 +70,3 @@ spec:
           - ALL
       seccompProfile:
         type: RuntimeDefault
-
