@@ -1,17 +1,12 @@
 # Kubernetes Manifests
 
-This directory will contain Kubernetes manifests, Helm values, and Kustomize configurations for the Nature homelab.
+This directory contains Kubernetes manifests, Helm values, and Kustomize configurations for the Nature homelab.
 
-## Planned Structure
+## Current structure
 
-```
-kubernetes/
-├── base/                     # Base manifests (namespaces, RBAC)
-├── apps/                     # Application deployments
-├── helm/                     # Helm values files
-├── secrets/                  # Sealed Secrets or external secret references
-└── README.md                 # This file
-```
+- `flux/` — Flux bootstrap manifests and Flux Kustomizations.
+- `tailscale/` — Tailscale operator and connector resources.
+- `headlamp/` — private Kubernetes dashboard exposed through Tailscale Ingress.
 
 ## Secret Management
 
