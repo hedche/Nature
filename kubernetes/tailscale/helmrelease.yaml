@@ -1,0 +1,42 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: tailscale-operator
+  namespace: tailscale
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: tailscale-operator
+      version: "1.x"
+      sourceRef:
+        kind: HelmRepository
+        name: tailscale
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    installCRDs: true
+    operatorConfig:
+      defaultTags:
+        - "tag:k8s-operator"
+      hostname: "tailscale-operator"
+      logging: "info"
+    proxyConfig:
+      defaultTags: "tag:k8s"
+      firewallMode: auto
+    apiServerProxyConfig:
+      mode: "false"
+  valuesFrom:
+    - kind: Secret
+      name: operator-oauth
+      valuesKey: client_id
+      targetPath: oauth.clientId
+    - kind: Secret
+      name: operator-oauth
+      valuesKey: client_secret
+      targetPath: oauth.clientSecret

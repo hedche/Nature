@@ -1,0 +1,13 @@
+apiVersion: tailscale.com/v1alpha1
+kind: Connector
+metadata:
+  name: ts-subnet-router
+spec:
+  hostname: cereal-subnet-router
+  tags:
+    - tag:k8s
+  subnetRouter:
+    advertiseRoutes:
+      - "10.244.0.0/16"  # Pod CIDR
+      - "10.96.0.0/12"   # Service CIDR
+      - "10.30.1.0/24"   # Node / LAN network
