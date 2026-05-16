@@ -4,6 +4,7 @@ metadata:
   name: ts-exit-node
 spec:
   hostname: cereal-exit-node
+  replicas: 2
   tags:
     - tag:k8s
   exitNode: true
