@@ -4,5 +4,3 @@ resources:
   - namespace.yaml
   - helmrepository.yaml
   - helmrelease.yaml
-  - connector-subnet-router.yaml
-  - connector-exit-node.yaml
