@@ -3,7 +3,7 @@ kind: Connector
 metadata:
   name: ts-subnet-router
 spec:
-  hostname: cereal-subnet-router
+  hostnamePrefix: cereal-subnet-router
   replicas: 2
   tags:
     - tag:k8s
