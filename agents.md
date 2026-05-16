@@ -50,4 +50,15 @@ All cluster state must be reproducible from this repo. Never apply ad-hoc `kubec
 
 - Place in `kubernetes/` directory.
 - Use Kustomize or Helm values files for environment-specific config.
-- Never embed secrets in plain manifests; use Sealed Secrets or external secret management.
+- Never embed secrets in plain manifests; use the Kubernetes secrets pipeline (section 7).
+
+## 7. Kubernetes secrets pipeline
+
+Kubernetes application secrets are managed via `scripts/secrets.sh` and stored in the **same root `secrets.yaml`** under the `kubernetes.secrets` key — one file for all secrets.
+
+- **Single file**: Talos secrets (`talos:`), CUPS secrets (`cups:`), and Kubernetes secrets (`kubernetes.secrets:`) all live in root `secrets.yaml`. No separate secrets files.
+- **Plaintext storage**: Values are stored as plaintext in `secrets.yaml`; the script base64-encodes them when constructing K8s manifests at push time.
+- **CLI tool**: Use `scripts/secrets.sh` to create, import, push, list, show, delete, and validate secrets.
+- **Bootstrap integration**: `talos/bootstrap.sh` pushes secrets automatically during full cluster rebuilds (Phase 7). Run `./talos/bootstrap.sh push-secrets` independently.
+- **Never create K8s secrets manually** with ad-hoc `kubectl create secret` — always go through the CLI so secrets are reproducible from the repo.
+- **Template**: New secrets should be documented in `talos/secrets.yaml.template` under the `kubernetes.secrets` example section.

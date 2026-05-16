@@ -7,6 +7,7 @@
 #   ./talos/bootstrap.sh apply <node>     # Apply config to a single node
 #   ./talos/bootstrap.sh apply-labels     # Apply k8s labels to all workers
 #   ./talos/bootstrap.sh apply-labels <n> # Apply k8s labels to a single node
+#   ./talos/bootstrap.sh bootstrap-flux   # Bootstrap Flux CD GitOps
 #   ./talos/bootstrap.sh status           # Check cluster health
 #
 # Nodes:
@@ -293,6 +294,51 @@ cluster_status() {
     done
 }
 
+# --- Bootstrap Flux CD ---
+bootstrap_flux() {
+    if ! command -v flux &>/dev/null; then
+        die "flux CLI is required.\n    Install with: brew install fluxcd/tap/flux\n    Or: curl -s https://fluxcd.io/install.sh | bash"
+    fi
+
+    local kubeconfig="${SCRIPT_DIR}/kubeconfig"
+    if [[ ! -f "$kubeconfig" ]]; then
+        die "No kubeconfig found at ${kubeconfig}.\n    Run the full bootstrap or fetch_kubeconfig first."
+    fi
+
+    # Read the GitHub PAT from the secrets pipeline
+    local token
+    token="$(yq eval '.kubernetes.secrets[] | select(.name == "flux-system") | .data.password' "${REPO_ROOT}/secrets.yaml")"
+    if [[ -z "$token" || "$token" == "null" ]]; then
+        die "Flux secret not found in secrets.yaml.\n" \
+            "    Create it with:\n" \
+            "    ./scripts/secrets.sh create flux-system -n flux-system --type Opaque --from-literal username=git --from-literal password=YOUR_GITHUB_PAT"
+    fi
+
+    info "Bootstrapping Flux CD..."
+    KUBECONFIG="$kubeconfig" GITHUB_TOKEN="$token" flux bootstrap github \
+        --owner=hedche \
+        --repository=Nature \
+        --path=kubernetes/flux \
+        --personal \
+        --token-auth
+
+    info "Running Flux pre-flight checks..."
+    KUBECONFIG="$kubeconfig" flux check
+    info "Flux CD bootstrapped successfully."
+}
+
+# --- Push Kubernetes secrets ---
+push_secrets() {
+    local count
+    count="$(yq eval '.kubernetes.secrets | length // 0' "${REPO_ROOT}/secrets.yaml")"
+    if [[ "$count" -eq 0 ]]; then
+        info "No Kubernetes secrets defined in secrets.yaml — skipping."
+        return
+    fi
+    info "Pushing ${count} Kubernetes secret(s)..."
+    bash "${REPO_ROOT}/scripts/secrets.sh" push
+}
+
 # --- Full bootstrap ---
 full_bootstrap() {
     check_prereqs
@@ -327,7 +373,13 @@ full_bootstrap() {
     info "=== Phase 6: Apply node labels ==="
     apply_node_labels
 
-    info "=== Phase 7: Cluster status ==="
+    info "=== Phase 7: Push Kubernetes secrets ==="
+    push_secrets
+
+    info "=== Phase 8: Bootstrap Flux CD ==="
+    bootstrap_flux
+
+    info "=== Phase 9: Cluster status ==="
     cluster_status
 
     echo ""
@@ -356,6 +408,14 @@ case "${1:-}" in
         check_prereqs
         apply_node_labels "$node"
         ;;
+    push-secrets)
+        check_prereqs
+        push_secrets
+        ;;
+    bootstrap-flux)
+        check_prereqs
+        bootstrap_flux
+        ;;
     status)
         check_prereqs
         cluster_status
@@ -364,13 +424,15 @@ case "${1:-}" in
         full_bootstrap
         ;;
     *)
-        echo "Usage: $0 [apply <node> | apply-labels [node] | status]"
+        echo "Usage: $0 [apply <node> | apply-labels [node] | push-secrets | bootstrap-flux | status]"
         echo ""
         echo "Commands:"
         echo "  (none)             Full cluster bootstrap"
         echo "  apply <node>       Apply config to a single node (+ labels)"
         echo "  apply-labels       Apply k8s labels to all worker nodes"
         echo "  apply-labels <n>   Apply k8s labels to a single node"
+        echo "  push-secrets       Push Kubernetes secrets to cluster"
+        echo "  bootstrap-flux     Bootstrap Flux CD for GitOps"
         echo "  status             Show cluster health"
         echo ""
         echo "Nodes: controlplane snap crackle pop"
