@@ -44,5 +44,4 @@ spec:
                   memory: 512Mi
           volumes:
             - name: memory
-              persistentVolumeClaim:
-                claimName: peanut-memory
+              emptyDir: {}
