@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: peanut
+  namespace: peanut
+  labels:
+    app.kubernetes.io/name: peanut
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: peanut
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

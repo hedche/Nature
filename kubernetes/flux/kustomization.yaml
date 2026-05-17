@@ -4,3 +4,4 @@ resources:
   - flux-system
   - tailscale.yaml
   - headlamp.yaml
+  - peanut.yaml

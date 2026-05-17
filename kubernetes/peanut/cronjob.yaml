@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: peanut-daily-briefing
+  namespace: peanut
+  labels:
+    app.kubernetes.io/name: peanut
+spec:
+  schedule: "30 8 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: peanut
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: peanut
+              image: hedche/peanut:latest
+              imagePullPolicy: IfNotPresent
+              command:
+                - python
+                - -m
+                - app.run
+              envFrom:
+                - configMapRef:
+                    name: peanut-config
+                - secretRef:
+                    name: peanut-secrets
+              volumeMounts:
+                - name: memory
+                  mountPath: /data
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+          volumes:
+            - name: memory
+              persistentVolumeClaim:
+                claimName: peanut-memory
