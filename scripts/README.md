@@ -11,6 +11,7 @@ Utility scripts for managing the Nature homelab.
 | `generate-assets.sh` | In `pxe/` — generates iPXE menus from declarative YAML |
 | `test-pxe.sh` | In `pxe/` — validates the deployed PXE HTTP/TFTP/Compose service |
 | `secrets.sh` | Manage Kubernetes secrets (create, import, push, list, validate) |
+| `validate-cereal-flux.sh` | Validate Flux-managed Kubernetes manifests for the cereal cluster |
 
 ## Adding Scripts
 

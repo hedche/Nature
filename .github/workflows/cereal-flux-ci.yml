@@ -1,0 +1,66 @@
+name: cereal-flux-ci
+
+on:
+  pull_request:
+    paths:
+      - "kubernetes/**"
+      - "scripts/validate-cereal-flux.sh"
+      - ".github/workflows/cereal-flux-ci.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "kubernetes/**"
+      - "scripts/validate-cereal-flux.sh"
+      - ".github/workflows/cereal-flux-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cereal-flux-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KUBECONFORM_VERSION: v0.7.0
+  KUSTOMIZE_VERSION: v5.8.1
+  YQ_VERSION: v4.53.2
+
+jobs:
+  validate:
+    name: Validate Flux manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install validation tools
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          install -d "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+          curl -sSfL \
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" \
+            -o "$HOME/.local/bin/yq"
+          chmod +x "$HOME/.local/bin/yq"
+
+          curl -sSfL \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
+            | tar xz -C "$HOME/.local/bin" kustomize
+
+          curl -sSfL \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar xz -C "$HOME/.local/bin" kubeconform
+
+          yq --version
+          kustomize version
+          kubeconform -v
+
+      - name: Validate cereal Flux manifests
+        run: ./scripts/validate-cereal-flux.sh
