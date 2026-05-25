@@ -1,0 +1,121 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: rook-ceph-cluster
+  namespace: rook-ceph
+spec:
+  interval: 30m
+  dependsOn:
+    - name: rook-ceph
+      namespace: rook-ceph
+  chart:
+    spec:
+      chart: rook-ceph-cluster
+      version: "v1.19.5"
+      sourceRef:
+        kind: HelmRepository
+        name: rook-release
+        namespace: flux-system
+      interval: 10m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    operatorNamespace: rook-ceph
+    clusterName: rook-ceph
+    toolbox:
+      enabled: true
+    cephImage:
+      repository: quay.io/ceph/ceph
+      tag: v19.2.3
+      allowUnsupported: false
+    cephClusterSpec:
+      dataDirHostPath: /var/lib/rook
+      mon:
+        count: 3
+        allowMultiplePerNode: false
+      mgr:
+        count: 2
+        allowMultiplePerNode: false
+      dashboard:
+        enabled: true
+        ssl: true
+      crashCollector:
+        disable: false
+      logCollector:
+        enabled: true
+        periodicity: daily
+        maxLogSize: 500M
+      placement:
+        all:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: kubernetes.io/hostname
+                      operator: In
+                      values:
+                        - snap
+                        - crackle
+                        - pop
+      storage:
+        useAllNodes: false
+        useAllDevices: false
+        nodes:
+          - name: snap
+            devices:
+              - name: sda
+          - name: crackle
+            devices:
+              - name: sda
+          - name: pop
+            devices:
+              - name: sda
+      disruptionManagement:
+        managePodBudgets: true
+        osdMaintenanceTimeout: 30
+      healthCheck:
+        daemonHealth:
+          mon:
+            disabled: false
+            interval: 45s
+          osd:
+            disabled: false
+            interval: 60s
+          status:
+            disabled: false
+            interval: 60s
+    cephBlockPools:
+      - name: ceph-blockpool
+        spec:
+          failureDomain: host
+          replicated:
+            size: 3
+            requireSafeReplicaSize: true
+          parameters:
+            min_size: "2"
+        storageClass:
+          enabled: true
+          name: ceph-block
+          isDefault: true
+          reclaimPolicy: Delete
+          allowVolumeExpansion: true
+          volumeBindingMode: Immediate
+          parameters:
+            imageFormat: "2"
+            imageFeatures: layering
+            csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+            csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+            csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+            csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph
+            csi.storage.k8s.io/controller-publish-secret-name: rook-csi-rbd-provisioner
+            csi.storage.k8s.io/controller-publish-secret-namespace: rook-ceph
+            csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+            csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+            csi.storage.k8s.io/fstype: ext4
+    cephFileSystems: []
+    cephObjectStores: []
+
