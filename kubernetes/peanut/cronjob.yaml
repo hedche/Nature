@@ -22,7 +22,7 @@ spec:
           containers:
             - name: peanut
               image: hedche/peanut:latest
-              imagePullPolicy: IfNotPresent
+              imagePullPolicy: Always
               command:
                 - python
                 - -m
@@ -44,4 +44,5 @@ spec:
                   memory: 512Mi
           volumes:
             - name: memory
-              emptyDir: {}
+              persistentVolumeClaim:
+                claimName: peanut-memory
