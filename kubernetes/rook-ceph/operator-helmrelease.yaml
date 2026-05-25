@@ -5,6 +5,7 @@ metadata:
   namespace: rook-ceph
 spec:
   interval: 30m
+  timeout: 20m
   chart:
     spec:
       chart: rook-ceph
@@ -29,4 +30,3 @@ spec:
       installCsiOperator: true
     enableDiscoveryDaemon: true
     discoveryDaemonInterval: 10m
-
