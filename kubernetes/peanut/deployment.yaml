@@ -5,6 +5,7 @@ metadata:
   namespace: peanut
   labels:
     app.kubernetes.io/name: peanut
+    app.kubernetes.io/component: web
 spec:
   replicas: 1
   selector:
@@ -14,6 +15,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: peanut
+        app.kubernetes.io/component: web
     spec:
       containers:
         - name: peanut

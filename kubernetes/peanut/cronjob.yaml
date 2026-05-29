@@ -5,6 +5,7 @@ metadata:
   namespace: peanut
   labels:
     app.kubernetes.io/name: peanut
+    app.kubernetes.io/component: daily-briefing
 spec:
   schedule: "30 8 * * *"
   concurrencyPolicy: Forbid
@@ -17,8 +18,17 @@ spec:
         metadata:
           labels:
             app.kubernetes.io/name: peanut
+            app.kubernetes.io/component: daily-briefing
         spec:
           restartPolicy: OnFailure
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: peanut
+                      app.kubernetes.io/component: web
+                  topologyKey: kubernetes.io/hostname
           containers:
             - name: peanut
               image: hedche/peanut:latest
