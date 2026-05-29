@@ -6,6 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/name: peanut
 spec:
+  storageClassName: ceph-block
   accessModes:
     - ReadWriteOnce
   resources:
