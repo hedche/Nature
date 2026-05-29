@@ -45,4 +45,4 @@ spec:
           volumes:
             - name: memory
               persistentVolumeClaim:
-                claimName: peanut-memory
+                claimName: peanut-memory-ceph
