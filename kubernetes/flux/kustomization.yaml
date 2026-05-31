@@ -3,6 +3,8 @@ kind: Kustomization
 resources:
   - flux-system
   - tailscale.yaml
+  - traefik.yaml
+  - cloudflared.yaml
   - headlamp.yaml
   - rook-ceph.yaml
   - peanut.yaml
