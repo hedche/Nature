@@ -316,6 +316,7 @@ bootstrap_flux() {
 
     info "Bootstrapping Flux CD..."
     KUBECONFIG="$kubeconfig" GITHUB_TOKEN="$token" flux bootstrap github \
+        --components-extra=image-reflector-controller,image-automation-controller \
         --owner=hedche \
         --repository=Nature \
         --path=kubernetes/flux \

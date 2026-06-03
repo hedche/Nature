@@ -16,13 +16,11 @@ spec:
       labels:
         app.kubernetes.io/name: peanut
         app.kubernetes.io/component: web
-      annotations:
-        app.kubernetes.io/version: "401d6ae"
     spec:
       containers:
         - name: peanut
           image: hedche/peanut:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8000

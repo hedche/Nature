@@ -32,7 +32,7 @@ spec:
           containers:
             - name: peanut
               image: hedche/peanut:latest
-              imagePullPolicy: Always
+              imagePullPolicy: IfNotPresent
               command:
                 - python
                 - -m

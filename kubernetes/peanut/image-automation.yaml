@@ -1,0 +1,60 @@
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: peanut
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/name: peanut
+spec:
+  image: hedche/peanut
+  interval: 5m0s
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: peanut
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/name: peanut
+spec:
+  imageRepositoryRef:
+    name: peanut
+  filterTags:
+    pattern: '^(main-)?[a-f0-9]+-(?P<ts>[1-9][0-9]*)$'
+    extract: '$ts'
+  policy:
+    numerical:
+      order: asc
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageUpdateAutomation
+metadata:
+  name: peanut
+  namespace: flux-system
+spec:
+  interval: 5m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  git:
+    checkout:
+      ref:
+        branch: main
+    commit:
+      author:
+        email: fluxcdbot@users.noreply.github.com
+        name: fluxcdbot
+      messageTemplate: |-
+        chore(peanut): update image
+
+        {{- range .Changed.Changes }}
+        - {{ .OldValue }} -> {{ .NewValue }}
+        {{- end }}
+    push:
+      branch: main
+  policySelector:
+    matchLabels:
+      app.kubernetes.io/name: peanut
+  update:
+    path: ./kubernetes/peanut
+    strategy: Setters

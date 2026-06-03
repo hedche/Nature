@@ -7,3 +7,9 @@ resources:
   - deployment.yaml
   - service.yaml
   - cronjob.yaml
+  - image-automation.yaml
+
+images:
+  - name: hedche/peanut
+    newName: hedche/peanut # {"$imagepolicy": "flux-system:peanut:name"}
+    newTag: main-cbbd180-1780488711 # {"$imagepolicy": "flux-system:peanut:tag"}
