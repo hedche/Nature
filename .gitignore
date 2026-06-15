@@ -34,3 +34,15 @@ pxe/assets/
 # === Generated Talos configs (loaded by direnv) ===
 talos/talosconfig
 talos/kubeconfig
+
+# === Terraform (oracle/ — OCI cluster infra) ===
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+# Local kubeconfig for the oracle cluster (loaded by direnv)
+oracle/kubeconfig.yaml
+# Local terraform run artifacts
+oracle/nohup.out
+oracle/terraform-retry.log

@@ -1,0 +1,52 @@
+# OCI Authentication Settings
+# These values are required to authenticate with Oracle Cloud Infrastructure
+
+# Your tenancy OCID
+# Find it in: OCI Console -> Profile -> Tenancy -> OCID
+tenancy_ocid = "ocid1.tenancy.oc1..aaaaaaaxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# Your user OCID
+# Find it in: OCI Console -> Profile -> User Settings -> OCID
+user_ocid = "ocid1.user.oc1..aaaaaaaxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# Your API key fingerprint
+# Find it in: OCI Console -> Profile -> User Settings -> API Keys
+# After uploading your public API key, the fingerprint will be displayed
+fingerprint = "xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx"
+
+# Path to your OCI API private key file
+# This is the private key that corresponds to the public key you uploaded to OCI
+# Generate using: openssl genrsa -out ~/.oci/oci_api_key.pem 2048
+private_key_path = "~/.oci/oci_api_key.pem"
+
+# OCI Region
+# List of regions: https://docs.oracle.com/en-us/iaas/Content/General/Concepts/regions.htm
+# Common free tier regions: us-ashburn-1, us-phoenix-1, eu-frankfurt-1, ap-tokyo-1
+region = "us-ashburn-1"
+
+# Compartment OCID
+# Find it in: OCI Console -> Identity -> Compartments
+# You can use your root compartment (same as tenancy_ocid) or create a new one
+compartment_ocid = "ocid1.compartment.oc1..aaaaaaaxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# SSH Public Key
+# Your SSH public key for accessing the instances
+# Generate using: ssh-keygen -t rsa -b 4096 -f ~/.ssh/oci_id_rsa
+# Then copy the content of ~/.ssh/oci_id_rsa.pub here
+ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQD... your-email@example.com"
+
+# Availability Domain (1, 2, or 3)
+# Free tier ARM instances are available in AD 1, 2, or 3 depending on your region
+# If deployment fails due to capacity, try a different AD
+availability_domain = 1
+
+# Network Configuration (defaults are usually fine)
+# vcn_cidr    = "10.0.0.0/16"
+# subnet_cidr = "10.0.1.0/24"
+
+# Instance Configuration (defaults match free tier allocation)
+# Total free tier: 4 OCPUs, 24 GB RAM for ARM instances
+# control_plane_ocpus      = 1
+# control_plane_memory_gb  = 6
+# worker_ocpus             = 3
+# worker_memory_gb         = 18

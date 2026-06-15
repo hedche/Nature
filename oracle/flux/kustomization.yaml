@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Root sync path for the Oracle cluster (./oracle/flux). Add app Kustomizations
+# here as they are migrated, e.g.:
+#   - cloudflared.yaml
+#   - <app>.yaml
+resources:
+  - flux-system

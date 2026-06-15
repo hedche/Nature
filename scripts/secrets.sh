@@ -5,10 +5,15 @@
 # `kubernetes.secrets` key.  Values are stored as plaintext; the script
 # base64-encodes them when constructing K8s manifests for `kubectl apply`.
 #
+# Multi-cluster: each entry may carry an optional `clusters: [name, ...]` list.
+# An entry WITHOUT a `clusters` field is shared (pushed to every cluster). With
+# `--cluster NAME`, push applies only shared entries plus those whose `clusters`
+# list contains NAME. Without `--cluster`, all entries are pushed (legacy).
+#
 # Usage:
 #   ./scripts/secrets.sh create <name> -n <ns> [--type <type>] --from-literal key=val ...
 #   ./scripts/secrets.sh import <file>
-#   ./scripts/secrets.sh push [--dry-run] [name]
+#   ./scripts/secrets.sh push [--dry-run] [--cluster <name>] [name]
 #   ./scripts/secrets.sh list
 #   ./scripts/secrets.sh show <name>
 #   ./scripts/secrets.sh delete <name>
@@ -204,10 +209,12 @@ cmd_push() {
 
     local dry_run=false
     local target_name=""
+    local cluster=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --dry-run) dry_run=true; shift ;;
+            --cluster) cluster="${2:?--cluster requires a name}"; shift 2 ;;
             -*)        die "Unknown flag: $1" ;;
             *)         target_name="$1"; shift ;;
         esac
@@ -220,6 +227,8 @@ cmd_push() {
         return
     fi
 
+    [[ -n "$cluster" ]] && info "Filtering for cluster '${cluster}' (shared entries always included)."
+
     local pushed=0
     for ((i = 0; i < count; i++)); do
         local s_name
@@ -228,6 +237,16 @@ cmd_push() {
         # If targeting a specific secret, skip non-matches
         if [[ -n "$target_name" && "$s_name" != "$target_name" ]]; then
             continue
+        fi
+
+        # Cluster filter: an entry with no `clusters` field is shared (pushed
+        # everywhere). If it has one, the target cluster must be listed.
+        if [[ -n "$cluster" ]]; then
+            local entry_clusters
+            entry_clusters="$(yq eval ".kubernetes.secrets[${i}].clusters // [] | .[]" "$SECRETS_FILE")"
+            if [[ -n "$entry_clusters" ]] && ! grep -qxF "$cluster" <<< "$entry_clusters"; then
+                continue
+            fi
         fi
 
         # Ensure target namespace exists before applying
@@ -277,14 +296,15 @@ cmd_list() {
         return
     fi
 
-    printf "${BOLD}%-30s %-20s %-30s KEYS${NC}\n" "NAME" "NAMESPACE" "TYPE"
+    printf "${BOLD}%-26s %-16s %-14s %-14s KEYS${NC}\n" "NAME" "NAMESPACE" "TYPE" "CLUSTERS"
     for ((i = 0; i < count; i++)); do
-        local s_name s_ns s_type s_keys
+        local s_name s_ns s_type s_clusters s_keys
         s_name="$(yq eval ".kubernetes.secrets[${i}].name" "$SECRETS_FILE")"
         s_ns="$(yq eval ".kubernetes.secrets[${i}].namespace // \"default\"" "$SECRETS_FILE")"
         s_type="$(yq eval ".kubernetes.secrets[${i}].type // \"Opaque\"" "$SECRETS_FILE")"
+        s_clusters="$(yq eval ".kubernetes.secrets[${i}].clusters // [\"(all)\"] | join(\",\")" "$SECRETS_FILE")"
         s_keys="$(yq eval ".kubernetes.secrets[${i}].data | keys | join(\", \")" "$SECRETS_FILE")"
-        printf "%-30s %-20s %-30s %s\n" "$s_name" "$s_ns" "$s_type" "$s_keys"
+        printf "%-26s %-16s %-14s %-14s %s\n" "$s_name" "$s_ns" "$s_type" "$s_clusters" "$s_keys"
     done
 }
 
@@ -381,7 +401,7 @@ case "${1:-}" in
         echo "Commands:"
         echo "  create <name> -n <ns> [--type <t>] --from-literal k=v ...   Create a secret"
         echo "  import <file>                                                Import a K8s Secret YAML"
-        echo "  push [--dry-run] [name]                                      Push secrets to cluster"
+        echo "  push [--dry-run] [--cluster <name>] [name]                   Push secrets to cluster"
         echo "  list                                                         List managed secrets"
         echo "  show <name>                                                  Show a secret's values"
         echo "  delete <name>                                                Remove a secret"

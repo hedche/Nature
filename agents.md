@@ -1,6 +1,6 @@
 # Nature Homelab — Agent Conventions
 
-This repository manages a Talos Kubernetes homelab plus Home Assistant and QNAP NAS. These conventions must be followed by all agents working on this codebase.
+This repository manages two GitOps Kubernetes clusters — the Talos homelab cluster `cereal` and the Oracle Cloud K3s cluster `oracle` — plus Home Assistant and QNAP NAS. These conventions must be followed by all agents working on this codebase.
 
 ## 1. Secrets — NEVER commit to git
 
@@ -18,6 +18,7 @@ This repository manages a Talos Kubernetes homelab plus Home Assistant and QNAP 
     - `snap` — worker (`10.30.1.51`)
     - `crackle` — worker (`10.30.1.52`)
     - `pop` — worker (`10.30.1.53`)
+  - **K3s cluster `oracle`** — Oracle Cloud free-tier ARM, provisioned by Terraform in `oracle/`. Public cluster; control plane + 1 worker. Adopted from `~/dv/oci-k8s-terraform` (state copied in; do not run Terraform from the old repo).
   - QNAP NAS (`10.30.1.20`)
   - Raspberry Pi `photon` — CUPS server (`10.30.1.90`)
   - Raspberry Pi `hassio` — Home Assistant (`10.30.1.60`)
@@ -46,11 +47,14 @@ All cluster state must be reproducible from this repo. Never apply ad-hoc `kubec
 - **Any new kubectl-managed state** (labels, annotations, taints, RBAC bindings, namespaces, etc.) must be added to `talos/bootstrap.sh` or a Kubernetes manifest in `kubernetes/` so it is reapplied on a full cluster wipe and re-bootstrap.
 - **NodeRestriction caveat**: Kubelets cannot self-assign `node-role.kubernetes.io/*` labels (blocked by Kubernetes admission control). These must be applied from an admin kubeconfig, which is why they live in the bootstrap script rather than in `machine.nodeLabels` in Talos configs.
 
-## 6. Kubernetes manifests
+## 6. Kubernetes manifests & multi-cluster GitOps
 
-- Place in `kubernetes/` directory.
+- **cereal** manifests + Flux live in `kubernetes/` (Flux syncs `./kubernetes/flux`).
+- **oracle** manifests + Flux live in `oracle/flux/` (Flux syncs `./oracle/flux`). The `oracle/` dir also holds that cluster's Terraform infra and its `.envrc`/`bootstrap.sh`.
+- Each cluster runs its own Flux that reconciles **only its own path** — never point one cluster's Kustomization at the other's tree. Shared app manifests can be referenced from both sync trees.
 - Use Kustomize or Helm values files for environment-specific config.
 - Never embed secrets in plain manifests; use the Kubernetes secrets pipeline (section 7).
+- The `oracle` cluster is K3s (Traefik + local-path storage built in); it has **no** rook-ceph. Apps needing `ceph-block` storage are cereal-only.
 
 ## 7. Kubernetes secrets pipeline
 
@@ -59,6 +63,7 @@ Kubernetes application secrets are managed via `scripts/secrets.sh` and stored i
 - **Single file**: Talos secrets (`talos:`), CUPS secrets (`cups:`), and Kubernetes secrets (`kubernetes.secrets:`) all live in root `secrets.yaml`. No separate secrets files.
 - **Plaintext storage**: Values are stored as plaintext in `secrets.yaml`; the script base64-encodes them when constructing K8s manifests at push time.
 - **CLI tool**: Use `scripts/secrets.sh` to create, import, push, list, show, delete, and validate secrets.
-- **Bootstrap integration**: `talos/bootstrap.sh` pushes secrets automatically during full cluster rebuilds (Phase 7). Run `./talos/bootstrap.sh push-secrets` independently.
+- **Cluster-aware**: An entry may carry an optional `clusters: [name, ...]` list. Entries with no `clusters` field are shared (pushed to every cluster); tagged entries only go to the named clusters. Push with `scripts/secrets.sh push --cluster cereal` or `--cluster oracle`. cereal-only secrets (peanut, tailscale, cloudflare) are tagged `clusters: [cereal]`; `flux-system` is shared.
+- **Bootstrap integration**: `talos/bootstrap.sh` pushes cereal secrets (`push --cluster cereal`) during full rebuilds; `oracle/bootstrap.sh` pushes oracle secrets (`push --cluster oracle`).
 - **Never create K8s secrets manually** with ad-hoc `kubectl create secret` — always go through the CLI so secrets are reproducible from the repo.
 - **Template**: New secrets should be documented in `talos/secrets.yaml.template` under the `kubernetes.secrets` example section.

@@ -336,8 +336,10 @@ push_secrets() {
         info "No Kubernetes secrets defined in secrets.yaml — skipping."
         return
     fi
-    info "Pushing ${count} Kubernetes secret(s)..."
-    bash "${REPO_ROOT}/scripts/secrets.sh" push
+    info "Pushing Kubernetes secret(s) for cluster 'cereal'..."
+    # --cluster cereal pushes shared entries plus cereal-tagged ones, so oracle-only
+    # secrets never land on cereal. Entries without a `clusters` field are shared.
+    bash "${REPO_ROOT}/scripts/secrets.sh" push --cluster cereal
 }
 
 # --- Full bootstrap ---

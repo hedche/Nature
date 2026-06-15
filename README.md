@@ -45,7 +45,15 @@ Infrastructure-as-Code for the Nature homelab. A single-secrets-file approach to
 | `arctic` | WD MyCloud NAS 2TB | `10.30.1.21` |
 | `hassio` | Raspberry Pi 4B 4GB RAM — Home Assistant | `10.30.1.60` |
 
-Cluster name: **cereal** — API endpoint: `cereal.nature.leafbit.uk:6443`
+Two GitOps-managed Kubernetes clusters:
+
+| Cluster | Type | Location | Flux sync path |
+|---------|------|----------|----------------|
+| **cereal** | Talos | on-prem (`cereal.nature.leafbit.uk:6443`) | `./kubernetes/flux` |
+| **oracle** | K3s | Oracle Cloud free tier (ARM, public IP) | `./oracle/flux` |
+
+Each cluster runs its own Flux that reconciles only its own path, so apps never
+cross between clusters. See `oracle/README.md` for the OCI cluster.
 
 ## Quick Start
 
@@ -78,6 +86,23 @@ Cluster name: **cereal** — API endpoint: `cereal.nature.leafbit.uk:6443`
    ./talos/bootstrap.sh apply snap # Apply config to a single node
    ./talos/bootstrap.sh status     # Check cluster health
    ```
+
+## Oracle (OCI) cluster
+
+A second cluster — a free-tier K3s cluster on Oracle Cloud — lives under `oracle/`
+(Terraform for the infra + its own Flux sync tree). `cd oracle/` auto-loads its
+`KUBECONFIG` via direnv. To make it operational:
+
+```bash
+cd oracle
+direnv allow                 # exports KUBECONFIG=./kubeconfig.yaml
+terraform init && terraform plan   # manages the existing instances
+./bootstrap.sh               # push secrets (--cluster oracle) + install Flux
+```
+
+Secrets are shared with cereal via the single root `secrets.yaml`. Entries tagged
+`clusters: [cereal]` stay on cereal; untagged entries (e.g. `flux-system`) are
+shared. See `oracle/README.md`.
 
 ## PXE Recovery
 
@@ -112,10 +137,15 @@ By default, PXE boots Talos into maintenance mode and does **not** serve generat
 │   ├── generate-configs.sh   # Script: templates + secrets -> runnable configs
 │   ├── bootstrap.sh          # Full cluster bootstrap script
 │   └── generated/            # Output directory (gitignored)
-├── kubernetes/               # Kubernetes manifests (future)
+├── kubernetes/               # cereal cluster manifests + Flux sync (./kubernetes/flux)
+├── oracle/                   # Oracle (OCI) K3s cluster: Terraform infra + Flux sync (./oracle/flux)
+│   ├── *.tf, cloud-init/     # Terraform: provisions the free-tier ARM K3s cluster
+│   ├── .envrc                # direnv: exports KUBECONFIG for this cluster
+│   ├── bootstrap.sh          # Push secrets + install Flux onto the cluster
+│   └── flux/                 # Flux sync tree (flux-system + app Kustomizations)
 ├── home-assistant/           # Home Assistant docs (future)
 ├── pxe/                      # QNAP-hosted PXE recovery service
-├── scripts/                  # Utility scripts (backup/restore secrets)
+├── scripts/                  # Utility scripts (secrets.sh — cluster-aware)
 └── deprecated/               # Historical configs (not in active use)
 ```
 
