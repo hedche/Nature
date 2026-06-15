@@ -11,7 +11,23 @@ packages:
   - vim
   - git
 
+# Oracle Linux 8 boots with cgroup v1, but the K3s kubelet (v1.34+) refuses to
+# run on cgroup v1. Switch to the unified (v2) hierarchy on the very first boot
+# and reboot before cloud-init reaches the K3s install below. bootcmd runs on
+# every boot; the guard makes it a no-op once v2 is active.
+bootcmd:
+  - |
+    if [ ! -f /sys/fs/cgroup/cgroup.controllers ]; then
+      grubby --update-kernel=ALL --args="systemd.unified_cgroup_hierarchy=1"
+      reboot
+    fi
+
 runcmd:
+  # Grow the root filesystem to fill the full boot volume. Oracle Linux images
+  # do not auto-expand past the image default, so without this the extra space
+  # on a larger boot_volume_size_in_gbs would be stranded.
+  - /usr/libexec/oci-growfs -y
+
   # Disable firewalld to avoid conflicts with K3s
   - systemctl disable firewalld
   - systemctl stop firewalld

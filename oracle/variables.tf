@@ -76,6 +76,21 @@ variable "worker_memory_gb" {
   default     = 18
 }
 
+# Boot volume sizes. OCI minimum is 50 GB; the Always Free tier allows 200 GB of
+# block storage total across all instances. Weighted toward the worker since that
+# is where workloads (and their local-path PVs) land. 60 + 140 = 200 GB.
+variable "control_plane_boot_volume_gb" {
+  description = "Boot volume size in GB for control plane instance (min 50)"
+  type        = number
+  default     = 60
+}
+
+variable "worker_boot_volume_gb" {
+  description = "Boot volume size in GB for worker instance (min 50)"
+  type        = number
+  default     = 140
+}
+
 variable "shape_name" {
   description = "The shape name to check for availability (used by retry script)"
   type        = string

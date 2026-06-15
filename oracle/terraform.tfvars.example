@@ -45,8 +45,13 @@ availability_domain = 1
 # subnet_cidr = "10.0.1.0/24"
 
 # Instance Configuration (defaults match free tier allocation)
-# Total free tier: 4 OCPUs, 24 GB RAM for ARM instances
+# Total free tier: 4 OCPUs, 24 GB RAM, 200 GB block storage for ARM instances
 # control_plane_ocpus      = 1
 # control_plane_memory_gb  = 6
 # worker_ocpus             = 3
 # worker_memory_gb         = 18
+
+# Boot volume sizes (min 50 GB each; 200 GB total free-tier allowance).
+# Weighted toward the worker where workloads land. 60 + 140 = 200 GB.
+# control_plane_boot_volume_gb = 60
+# worker_boot_volume_gb        = 140

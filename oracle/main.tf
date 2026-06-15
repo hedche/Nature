@@ -185,8 +185,9 @@ resource "oci_core_instance" "k3s_control_plane" {
   }
 
   source_details {
-    source_type = "image"
-    source_id   = data.oci_core_images.oracle_linux_arm.images[0].id
+    source_type             = "image"
+    source_id               = data.oci_core_images.oracle_linux_arm.images[0].id
+    boot_volume_size_in_gbs = var.control_plane_boot_volume_gb
   }
 
   create_vnic_details {
@@ -216,8 +217,9 @@ resource "oci_core_instance" "k3s_worker" {
   }
 
   source_details {
-    source_type = "image"
-    source_id   = data.oci_core_images.oracle_linux_arm.images[0].id
+    source_type             = "image"
+    source_id               = data.oci_core_images.oracle_linux_arm.images[0].id
+    boot_volume_size_in_gbs = var.worker_boot_volume_gb
   }
 
   create_vnic_details {

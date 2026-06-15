@@ -91,18 +91,42 @@ cross between clusters. See `oracle/README.md` for the OCI cluster.
 
 A second cluster — a free-tier K3s cluster on Oracle Cloud — lives under `oracle/`
 (Terraform for the infra + its own Flux sync tree). `cd oracle/` auto-loads its
-`KUBECONFIG` via direnv. To make it operational:
+`KUBECONFIG` via direnv.
+
+Two `VM.Standard.A1.Flex` ARM64 instances (Oracle Linux 8), sized to the Always
+Free allocation of 4 OCPUs / 24 GB RAM:
+
+| Node | Role | OCPUs | RAM | Boot volume |
+|------|------|-------|-----|-------------|
+| `k3s-control-plane` | K3s server | 1 | 6 GB | 60 GB |
+| `k3s-worker` | K3s agent | 3 | 18 GB | 140 GB |
+| **Total** | | **4** | **24 GB** | **200 GB** (full free-tier allowance) |
+
+This consumes the entire Always Free allocation (4 OCPUs / 24 GB RAM / 200 GB block
+storage). Boot volume sizes are declared in Terraform (`*_boot_volume_gb`) and
+weighted toward the worker, where workloads and their `local-path` PVs land;
+cloud-init runs `oci-growfs` so each node's root filesystem fills its volume.
+Storage is the K3s built-in `local-path` provisioner — there is no rook-ceph here.
+CNI is Flannel and ingress is the built-in Traefik.
+
+To spin it up from scratch (provision → kubeconfig → Flux):
 
 ```bash
 cd oracle
-direnv allow                 # exports KUBECONFIG=./kubeconfig.yaml
-terraform init && terraform plan   # manages the existing instances
-./bootstrap.sh               # push secrets (--cluster oracle) + install Flux
+direnv allow                       # exports KUBECONFIG=./kubeconfig.yaml
+cp terraform.tfvars.example terraform.tfvars   # then fill in OCI auth + SSH key
+terraform init && terraform apply  # provisions both nodes (~3-5 min)
+# fetch kubeconfig from the new control plane, then:
+./bootstrap.sh                     # push secrets (--cluster oracle) + install Flux
 ```
+
+See **[`oracle/README.md`](oracle/README.md)** for the full step-by-step day-0
+guide (including fetching the kubeconfig and the cgroup v2 first-boot behaviour)
+and troubleshooting.
 
 Secrets are shared with cereal via the single root `secrets.yaml`. Entries tagged
 `clusters: [cereal]` stay on cereal; untagged entries (e.g. `flux-system`) are
-shared. See `oracle/README.md`.
+shared.
 
 ## PXE Recovery
 
