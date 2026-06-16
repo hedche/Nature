@@ -46,3 +46,12 @@ oracle/kubeconfig.yaml
 # Local terraform run artifacts
 oracle/nohup.out
 oracle/terraform-retry.log
+
+# === Terraform (proxmox/ — Proxmox VE VMs) ===
+# .terraform/, *.tfstate*, *.tfvars are already matched by the global rules above;
+# listed explicitly for parity with oracle/.
+proxmox/.terraform/
+proxmox/terraform.tfstate
+proxmox/terraform.tfstate.*
+proxmox/terraform.tfvars
+proxmox/nohup.out

@@ -19,6 +19,7 @@ This repository manages two GitOps Kubernetes clusters — the Talos homelab clu
     - `crackle` — worker (`10.30.1.52`)
     - `pop` — worker (`10.30.1.53`)
   - **K3s cluster `oracle`** — Oracle Cloud free-tier ARM, provisioned by Terraform in `oracle/`. Public cluster; control plane + 1 worker. Adopted from `~/dv/oci-k8s-terraform` (state copied in; do not run Terraform from the old repo).
+  - **Proxmox VE node `pve`** (`10.30.1.55`) — hosts standalone cloud-init Ubuntu VMs (IPs `10.30.1.56-.59`) defined by Terraform in `proxmox/`.
   - QNAP NAS (`10.30.1.20`)
   - Raspberry Pi `photon` — CUPS server (`10.30.1.90`)
   - Raspberry Pi `hassio` — Home Assistant (`10.30.1.60`)
@@ -69,6 +70,21 @@ All cluster state must be reproducible from this repo. Never apply ad-hoc `kubec
   instances, new public IPs, new kubeconfig. Running Flux/GitOps does **not** require
   apply; the cluster is already up.
 - State, `terraform.tfvars`, and `kubeconfig.yaml` are gitignored — never commit them.
+
+## 6b. Proxmox Terraform
+
+- **`proxmox/` is the source of truth** for what runs on the Proxmox node `pve`
+  (`10.30.1.55`): standalone cloud-init Ubuntu 24.04 VMs, provisioned via the
+  `bpg/proxmox` provider. Local Terraform state, no remote backend (mirrors `oracle/`).
+- VMs are declared in the `vms` map in `terraform.tfvars` — add/remove an entry and
+  `terraform apply`. Per-VM fields override `vm_defaults`. Keep specs modest (node is
+  4 threads / 15 GB / ~56 GB `local-lvm`); use IPs `10.30.1.56-.59` (the node is `.55`,
+  the k8s nodes are `.50-.53`) on the shared `/24`.
+- Auth is a dedicated API token (`terraform@pve`), stored in the root `secrets.yaml`
+  under the `proxmox:` key and loaded into Terraform via `proxmox/.envrc`
+  (`TF_VAR_proxmox_api_token`). The token is never committed; `proxmox/README.md`
+  documents the one-time `pveum` token-creation steps.
+- State and `terraform.tfvars` are gitignored — never commit them.
 
 ## 7. Kubernetes secrets pipeline
 

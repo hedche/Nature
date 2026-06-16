@@ -1,0 +1,54 @@
+# Proxmox VE / Terraform configuration
+# Copy this file to terraform.tfvars and fill in the values.
+# terraform.tfvars is gitignored — never commit it.
+#
+# The API token is sensitive. Prefer supplying it via the environment
+# (TF_VAR_proxmox_api_token), e.g. through the provided .envrc + direnv, which
+# reads it from the root secrets.yaml. If you set it here instead, remember this
+# file (terraform.tfvars) is gitignored.
+
+# Proxmox VE API endpoint (self-signed cert; the provider uses insecure = true)
+proxmox_endpoint = "https://10.30.1.55:8006/"
+
+# API token created with the pveum commands in README.md.
+# Format: USER@REALM!TOKENID=UUID
+# proxmox_api_token = "terraform@pve!terraform=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+proxmox_node      = "pve"
+network_bridge    = "vmbr0"
+vm_disk_datastore = "local-lvm"
+image_datastore   = "local"
+
+# Your SSH public key (injected into the cloud-init user)
+ssh_public_key = "ssh-ed25519 AAAA... you@example.com"
+
+# Ubuntu 24.04 (noble) cloud image
+cloud_image_url      = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+cloud_image_filename = "noble-server-cloudimg-amd64.qcow2"
+
+dns_servers = ["10.30.1.1", "1.1.1.1"]
+dns_domain  = "local"
+
+# Default specs. Node has 4 threads / 15 GB RAM / ~56 GB local-lvm — size modestly.
+vm_defaults = {
+  cores     = 1
+  memory_mb = 1024
+  disk_gb   = 10
+  username  = "ubuntu"
+}
+
+# Add/remove VMs here. VMs live in 10.30.1.56-.59 (node is .55; .50-.53 are k8s).
+# Map VMID to 100 + last octet (e.g. .56 -> 156). Omit ip_address for DHCP.
+# Per-VM fields override vm_defaults.
+vms = {
+  example01 = {
+    vmid       = 156
+    ip_address = "10.30.1.56/24"
+    gateway    = "10.30.1.1"
+    cores      = 2
+    memory_mb  = 2048
+    disk_gb    = 15
+    tags       = ["terraform", "ubuntu"]
+  }
+  # dhcp-box = { vmid = 157 }   # omit ip_address => DHCP
+}
