@@ -41,14 +41,24 @@ vm_defaults = {
 # Map VMID to 100 + last octet (e.g. .56 -> 156). Omit ip_address for DHCP.
 # Per-VM fields override vm_defaults.
 vms = {
-  example01 = {
-    vmid       = 156
-    ip_address = "10.30.1.56/24"
+  # hermes: bare Ubuntu 24.04 host for the Nous Research Hermes Agent
+  # (github.com/nousresearch/hermes-agent), installed manually after provisioning.
+  hermes = {
+    vmid       = 157
+    ip_address = "10.30.1.57/24"
     gateway    = "10.30.1.1"
     cores      = 2
-    memory_mb  = 2048
-    disk_gb    = 15
-    tags       = ["terraform", "ubuntu"]
+    memory_mb  = 4096
+    disk_gb    = 20
+    tags       = ["terraform", "ubuntu", "hermes"]
   }
-  # dhcp-box = { vmid = 157 }   # omit ip_address => DHCP
+  # example01 = {              # generic template for another static-IP VM
+  #   vmid       = 156
+  #   ip_address = "10.30.1.56/24"
+  #   cores      = 2
+  #   memory_mb  = 2048
+  #   disk_gb    = 15
+  #   tags       = ["terraform", "ubuntu"]
+  # }
+  # dhcp-box = { vmid = 158 }   # omit ip_address => DHCP
 }
