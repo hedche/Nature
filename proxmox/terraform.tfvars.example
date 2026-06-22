@@ -19,8 +19,10 @@ network_bridge    = "vmbr0"
 vm_disk_datastore = "local-lvm"
 image_datastore   = "local"
 
-# Your SSH public key (injected into the cloud-init user)
-ssh_public_key = "ssh-ed25519 AAAA... you@example.com"
+# SSH public key (injected into the cloud-init user). Prefer supplying it via
+# the environment (TF_VAR_ssh_public_key) through .envrc, which reads
+# proxmox.ssh_public_key from the root secrets.yaml. Uncomment to override here.
+# ssh_public_key = "ssh-ed25519 AAAA... you@example.com"
 
 # Ubuntu 24.04 (noble) cloud image
 cloud_image_url      = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"

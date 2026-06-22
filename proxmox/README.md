@@ -52,18 +52,22 @@ The full token string is `terraform@pve!terraform=<UUID>`.
 
 ## Secrets
 
-Record the token in the root `secrets.yaml` (gitignored) under a `proxmox:` stanza
-(schema documented in `talos/secrets.yaml.template`):
+Record the token and your SSH public key in the root `secrets.yaml` (gitignored)
+under a `proxmox:` stanza (schema documented in `talos/secrets.yaml.template`):
 
 ```yaml
 proxmox:
   api_token: "terraform@pve!terraform=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
   endpoint: "https://10.30.1.55:8006/"
+  ssh_public_key: "ssh-ed25519 AAAA... you@host"
 ```
 
 `./.envrc` (direnv + `yq`) reads those values and exports them as
-`TF_VAR_proxmox_api_token` / `TF_VAR_proxmox_endpoint`, so the token never lands in
-`terraform.tfvars`. Run `direnv allow` once after cloning.
+`TF_VAR_proxmox_api_token` / `TF_VAR_proxmox_endpoint` / `TF_VAR_ssh_public_key`, so
+the token never lands in `terraform.tfvars` and the SSH key has a single source of
+truth (the key is injected into every VM's cloud-init user). Run `direnv allow` once
+after cloning. To override the key per-checkout, set `ssh_public_key` in
+`terraform.tfvars` instead.
 
 ## Configure & apply
 
