@@ -10,7 +10,7 @@ provider. This directory is the source of truth for what runs on that node.
 - **Workload**: general-purpose Ubuntu 24.04 VMs (cloud-init). Independent of the k8s
   clusters, though it shares the `10.30.1.0/24` subnet with the Talos `cereal`
   cluster (`10.30.1.50-.53`). These VMs use `10.30.1.56-.59` (node is `.55`).
-  - `hermes` (`10.30.1.57`, vmid `157`, 2c/4 GB/40 GB): bare host for the Nous Research
+  - `hermes` (`10.30.1.57`, vmid `157`, 2c/8 GB/40 GB): bare host for the Nous Research
     [Hermes Agent](https://github.com/nousresearch/hermes-agent). Terraform only provisions
     the VM + injects the SSH key; Hermes itself is installed manually on the guest.
 - **State**: local Terraform state, no remote backend (mirrors `oracle/`).
