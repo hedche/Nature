@@ -51,7 +51,7 @@ vms = {
     gateway    = "10.30.1.1"
     cores      = 2
     memory_mb  = 4096
-    disk_gb    = 20
+    disk_gb    = 40
     tags       = ["terraform", "ubuntu", "hermes"]
   }
   # example01 = {              # generic template for another static-IP VM
