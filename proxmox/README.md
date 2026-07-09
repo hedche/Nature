@@ -13,7 +13,7 @@ provider. This directory is the source of truth for what runs on that node.
   - `hermes` (`10.30.1.57`, vmid `157`, 2c/8 GB/40 GB + 1TB USB HDD passthrough at
     `/mnt/data`): host for the Nous Research
     [Hermes Agent](https://github.com/nousresearch/hermes-agent) and the Docker media
-    stack (Gluetun + qBittorrent) managed from [`../hermes/`](../hermes/README.md).
+    stack (Gluetun + qBittorrent + Plex) managed from [`../hermes/`](../hermes/README.md).
     Terraform only provisions the VM + injects the SSH key; workloads are deployed
     onto the guest (Hermes manually, the media stack via `hermes/deploy-to-hermes.sh`).
 - **State**: local Terraform state, no remote backend (mirrors `oracle/`).

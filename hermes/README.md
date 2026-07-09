@@ -1,10 +1,11 @@
-# hermes — VPN-Protected Torrent Stack
+# hermes — VPN-Protected Torrent Stack + Plex
 
 Docker Compose stack on the `hermes` VM (`10.30.1.57`, provisioned by
 [`../proxmox/`](../proxmox/README.md)): [Gluetun](https://github.com/qdm12/gluetun)
 as a NordVPN WireGuard gateway with [qBittorrent](https://github.com/linuxserver/docker-qbittorrent)
-running entirely inside its network namespace. Desired state lives in this
-repo; hermes is only the Docker host (same philosophy as `../pxe/`).
+running entirely inside its network namespace, plus
+[Plex](https://github.com/linuxserver/docker-plex) for playback. Desired state
+lives in this repo; hermes is only the Docker host (same philosophy as `../pxe/`).
 
 ```
 Nature LAN 10.30.1.0/24                hermes VM (10.30.1.57)
@@ -74,6 +75,26 @@ The script is idempotent. On each run it:
 
 WebUI authentication stays **on** (no LAN bypass): the WebUI can write to
 arbitrary save paths, and the *arr apps handle credentials natively.
+
+## Plex
+
+- **`http://10.30.1.57:32400/web`** — runs with `network_mode: host`
+  (Plex-recommended for DLNA/GDM discovery; also dodges the Tailscale × Docker
+  DNAT issue below, and deliberately does NOT tunnel through the VPN — only
+  torrent traffic must).
+- **Claiming**: on a fresh `/config`, grab a token from <https://plex.tv/claim>
+  (valid ~4 min) and deploy with it:
+  `PLEX_CLAIM=claim-XXXX ./deploy-to-hermes.sh`. Already-claimed servers
+  ignore it.
+- **Libraries**: media mounts are read-only. Point libraries at
+  `/data/torrents/movies` + `/data/media/movies` (Movies) and
+  `/data/torrents/tv` + `/data/media/tv` (TV). The `/data/media` tree is empty
+  for now — it is the future Sonarr/Radarr-managed layout; the torrent dirs
+  let you watch straight away.
+- **Caveats**: 2 vCPU and no GPU passthrough — expect direct play; heavy
+  transcodes will struggle (set clients to "Original" quality). Plex metadata
+  lives in `/home/ubuntu/appdata/plex` on the 40 GB OS disk — keep an eye on
+  it as the library grows.
 
 ## Verifying the kill switch
 

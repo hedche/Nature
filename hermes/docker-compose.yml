@@ -72,3 +72,45 @@ services:
             timeout: 15s
             retries: 3
             start_period: 60s
+
+    plex:
+        image: lscr.io/linuxserver/plex:1.43.2.10687-563d026ea-ls312
+        container_name: plex
+        restart: unless-stopped
+        # Host networking on purpose: it is Plex's recommended mode (DLNA/GDM
+        # discovery), it keeps Plex OUTSIDE the VPN (only qbittorrent tunnels),
+        # and host-sourced replies dodge the Tailscale accept-routes x Docker
+        # DNAT breakage that motivated the WebUI socket proxy (see README).
+        network_mode: host
+        environment:
+            PUID: "1000"
+            PGID: "1000"
+            TZ: Europe/London
+            VERSION: docker
+            # One-time server claim (https://plex.tv/claim, token valid ~4 min).
+            # Forwarded into .env by deploy-to-hermes.sh when PLEX_CLAIM is set.
+            PLEX_CLAIM: ${PLEX_CLAIM:-}
+        volumes:
+            # OS disk on purpose (see gluetun volume comment). Metadata lives
+            # here; keep an eye on the 40 GB root disk if the library grows.
+            - /home/ubuntu/appdata/plex:/config
+            # Media is read-only: Plex only ever needs to read it, and this
+            # stack should never modify the library.
+            - type: bind
+              source: /mnt/data/media
+              target: /data/media
+              read_only: true
+              bind:
+                  create_host_path: false
+            - type: bind
+              source: /mnt/data/torrents
+              target: /data/torrents
+              read_only: true
+              bind:
+                  create_host_path: false
+        healthcheck:
+            test: ["CMD-SHELL", "curl -fsS -m 10 http://127.0.0.1:32400/identity >/dev/null"]
+            interval: 60s
+            timeout: 15s
+            retries: 3
+            start_period: 120s

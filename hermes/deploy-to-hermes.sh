@@ -142,7 +142,8 @@ BOOTSTRAP
             exit 1
         fi
         mkdir -p /mnt/data/torrents/tv /mnt/data/torrents/movies /mnt/data/torrents/incomplete
-        mkdir -p /home/ubuntu/appdata/gluetun /home/ubuntu/appdata/qbittorrent
+        mkdir -p /mnt/data/media/tv /mnt/data/media/movies
+        mkdir -p /home/ubuntu/appdata/gluetun /home/ubuntu/appdata/qbittorrent /home/ubuntu/appdata/plex
         mkdir -p '${HERMES_DIR}'
         touch '${HERMES_DIR}/.nature-hermes-managed'
     "
@@ -162,9 +163,15 @@ if [[ "${DRY_RUN}" == true ]]; then
 fi
 
 # --- Write the secret .env on hermes (0600); never stored locally or in git ---
-printf 'NORDVPN_WIREGUARD_PRIVATE_KEY=%s\nNORDVPN_SERVER_COUNTRIES=%s\n' \
-    "${WG_KEY}" "${SERVER_COUNTRIES}" \
-    | ssh "${HERMES_SSH_HOST}" "install -m 600 /dev/stdin '${HERMES_DIR}/.env'"
+# PLEX_CLAIM is a short-lived (~4 min) one-time token from https://plex.tv/claim;
+# forward it only when set so a fresh Plex config binds to the user's account.
+{
+    printf 'NORDVPN_WIREGUARD_PRIVATE_KEY=%s\nNORDVPN_SERVER_COUNTRIES=%s\n' \
+        "${WG_KEY}" "${SERVER_COUNTRIES}"
+    if [[ -n "${PLEX_CLAIM:-}" ]]; then
+        printf 'PLEX_CLAIM=%s\n' "${PLEX_CLAIM}"
+    fi
+} | ssh "${HERMES_SSH_HOST}" "install -m 600 /dev/stdin '${HERMES_DIR}/.env'"
 
 # --- Bring the stack up ---
 ssh "${HERMES_SSH_HOST}" "
@@ -193,6 +200,7 @@ cat <<EOF
 Media stack deployed.
 
 qBittorrent WebUI: http://10.30.1.57:8080
+Plex:              http://10.30.1.57:32400/web
 Remote dir:        ${HERMES_SSH_HOST}:${HERMES_DIR}
 First run? Get the temporary WebUI password with:
   ssh ${HERMES_SSH_HOST} "docker logs qbittorrent 2>&1 | grep -i password"
