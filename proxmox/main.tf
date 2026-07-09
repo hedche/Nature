@@ -23,6 +23,7 @@ locals {
       disk_gb   = coalesce(v.disk_gb, var.vm_defaults.disk_gb)
       username  = coalesce(v.username, var.vm_defaults.username)
       tags      = v.tags
+      data_disk_path = v.data_disk_path
     }
   }
 }
@@ -62,6 +63,19 @@ resource "proxmox_virtual_environment_vm" "vm" {
     size         = each.value.disk_gb
     discard      = "on"
     ssd          = true
+  }
+
+  # Optional whole-disk passthrough (e.g. the USB 1TB HDD on pve). Empty
+  # datastore_id + absolute path_in_datastore is the bpg provider's passthrough
+  # form. Excluded from backups; a physical disk can't be snapshotted anyway.
+  dynamic "disk" {
+    for_each = each.value.data_disk_path != null ? [each.value.data_disk_path] : []
+    content {
+      datastore_id      = ""
+      path_in_datastore = disk.value
+      interface         = "scsi1"
+      backup            = false
+    }
   }
 
   network_device {

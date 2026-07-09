@@ -96,6 +96,9 @@ variable "vms" {
     disk_gb    = optional(number)
     username   = optional(string)
     tags       = optional(list(string), [])
+    # Absolute /dev/disk/by-id/... path on the node to pass a whole physical
+    # disk through to the VM as scsi1. The guest sees it as a raw block device.
+    data_disk_path = optional(string)
   }))
   default = {}
 }

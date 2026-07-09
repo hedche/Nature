@@ -53,6 +53,13 @@ vms = {
     memory_mb  = 8192
     disk_gb    = 40
     tags       = ["terraform", "ubuntu", "hermes"]
+    # 1TB StoreJet USB HDD plugged into pve, passed through whole-disk as scsi1.
+    # Use the ata- by-id alias: the usb- one contains ':' which the bpg
+    # provider cannot parse. NOTE: passthrough attach requires root; the
+    # terraform API token cannot do it. Attach once as root on pve:
+    #   qm set 157 --scsi1 /dev/disk/by-id/ata-<DISK_ID>,backup=0
+    # after which terraform plan converges with this config (no drift).
+    data_disk_path = "/dev/disk/by-id/ata-ST1000LM024_HN-M101MBB_S318J9CF105631"
   }
   # example01 = {              # generic template for another static-IP VM
   #   vmid       = 156
