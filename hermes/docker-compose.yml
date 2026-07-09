@@ -1,0 +1,74 @@
+services:
+    gluetun:
+        image: qmcgaw/gluetun:v3.41.1
+        container_name: gluetun
+        restart: unless-stopped
+        cap_add:
+            - NET_ADMIN
+        devices:
+            - /dev/net/tun:/dev/net/tun
+        environment:
+            VPN_SERVICE_PROVIDER: nordvpn
+            VPN_TYPE: wireguard
+            # Interpolated from .env, written on hermes by deploy-to-hermes.sh
+            # from the root secrets.yaml. Never committed.
+            WIREGUARD_PRIVATE_KEY: ${NORDVPN_WIREGUARD_PRIVATE_KEY:?run deploy-to-hermes.sh so .env is generated from secrets.yaml}
+            SERVER_COUNTRIES: ${NORDVPN_SERVER_COUNTRIES:-Netherlands}
+            # Allow replies to the Nature LAN (Mac browser, future Sonarr/Radarr)
+            # to route out eth0 instead of into the tunnel. LAN-only; torrent
+            # traffic still has no route except the VPN.
+            FIREWALL_OUTBOUND_SUBNETS: 10.30.1.0/24
+            # Required for LAN clients to reach the published WebUI port —
+            # without it gluetun's firewall drops inbound connections on eth0
+            # (localhost still works, which can mask the problem).
+            FIREWALL_INPUT_PORTS: "8080"
+            TZ: Europe/London
+        ports:
+            # qBittorrent WebUI — must be published here: qbittorrent shares
+            # gluetun's network namespace and has no ports of its own.
+            # Localhost-only on purpose: LAN access is served by the
+            # qbittorrent-proxy systemd socket unit (see systemd/ + README),
+            # because Tailscale accept-routes on hermes steers Docker DNAT
+            # replies into tailscale0 and breaks direct LAN access.
+            - "127.0.0.1:8080:8080/tcp"
+        volumes:
+            # OS disk on purpose: survives absence of the USB data disk (nofail).
+            - /home/ubuntu/appdata/gluetun:/gluetun
+
+    qbittorrent:
+        image: lscr.io/linuxserver/qbittorrent:5.2.3_v2.0.13-ls467
+        container_name: qbittorrent
+        restart: unless-stopped
+        # Kill switch: all traffic (peers, trackers, DHT, both directions) can
+        # only use gluetun's namespace; if the VPN is down there is no route out.
+        network_mode: "service:gluetun"
+        depends_on:
+            gluetun:
+                condition: service_healthy
+                restart: true # recreate qbittorrent when compose recreates gluetun (compose >= 2.17)
+        environment:
+            PUID: "1000"
+            PGID: "1000"
+            TZ: Europe/London
+            WEBUI_PORT: "8080"
+            TORRENTING_PORT: "6881" # not published: NordVPN has no port forwarding
+        volumes:
+            # OS disk on purpose (see gluetun volume comment).
+            - /home/ubuntu/appdata/qbittorrent:/config
+            # Long syntax: refuse to start if /mnt/data (USB, nofail) is absent,
+            # instead of Docker silently creating the path on the root filesystem.
+            - type: bind
+              source: /mnt/data/torrents
+              target: /data/torrents
+              bind:
+                  create_host_path: false
+        healthcheck:
+            # Proves outbound connectivity through the tunnel; goes unhealthy if
+            # gluetun restarts underneath us (broken namespace) or the VPN is down.
+            # Deliberately a hostname, not a raw IP: a stale namespace can keep
+            # raw-IP connectivity semantics while DNS is broken.
+            test: ["CMD-SHELL", "curl -fsS -m 10 https://one.one.one.one >/dev/null || wget -q -T 10 -O /dev/null https://one.one.one.one"]
+            interval: 60s
+            timeout: 15s
+            retries: 3
+            start_period: 60s

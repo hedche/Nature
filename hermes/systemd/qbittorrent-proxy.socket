@@ -1,0 +1,11 @@
+[Unit]
+Description=LAN socket for qBittorrent WebUI (proxied to the localhost-only Docker publish)
+
+[Socket]
+# Bind the LAN address specifically so it cannot collide with Docker's
+# 127.0.0.1:8080 publish. FreeBind lets systemd bind before the address is up.
+ListenStream=10.30.1.57:8080
+FreeBind=true
+
+[Install]
+WantedBy=sockets.target

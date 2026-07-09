@@ -40,6 +40,8 @@ Infrastructure-as-Code for the Nature homelab. A single-secrets-file approach to
 | `snap` | Talos worker | `10.30.1.51` |
 | `crackle` | Talos worker | `10.30.1.52` |
 | `pop` | Talos worker | `10.30.1.53` |
+| `pve` | Proxmox VE node — Terraform-managed VMs (`proxmox/`) | `10.30.1.55` |
+| `hermes` | Proxmox VM — VPN torrent stack (Gluetun + qBittorrent, `hermes/`) | `10.30.1.57` |
 | `photon` | Raspberry Pi 3A+ — CUPS | `10.30.1.90` |
 | `qnap` | QNAP NAS — network-attached storage, PXE recovery server | `10.30.1.20` |
 | `arctic` | WD MyCloud NAS 2TB | `10.30.1.21` |

@@ -1,0 +1,13 @@
+[Unit]
+Description=Proxy LAN :8080 to the qBittorrent WebUI published on 127.0.0.1
+# Why this exists: Tailscale accept-routes on hermes puts 10.30.1.0/24 in its
+# routing table 52, which hijacks replies from Docker's DNAT/FORWARD path into
+# tailscale0. Terminating LAN connections at a host socket and re-originating
+# them to localhost keeps replies host-sourced, which Tailscale's own
+# LAN-to-LAN exemption rule routes correctly.
+Requires=qbittorrent-proxy.socket
+After=network.target
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:8080
+PrivateTmp=true

@@ -19,7 +19,7 @@ This repository manages two GitOps Kubernetes clusters — the Talos homelab clu
     - `crackle` — worker (`10.30.1.52`)
     - `pop` — worker (`10.30.1.53`)
   - **K3s cluster `oracle`** — Oracle Cloud free-tier ARM, provisioned by Terraform in `oracle/`. Public cluster; control plane + 1 worker. Adopted from `~/dv/oci-k8s-terraform` (state copied in; do not run Terraform from the old repo).
-  - **Proxmox VE node `pve`** (`10.30.1.55`) — hosts standalone cloud-init Ubuntu VMs (IPs `10.30.1.56-.59`) defined by Terraform in `proxmox/`.
+  - **Proxmox VE node `pve`** (`10.30.1.55`) — hosts standalone cloud-init Ubuntu VMs (IPs `10.30.1.56-.59`) defined by Terraform in `proxmox/`. The `hermes` VM (`10.30.1.57`) also runs the VPN torrent stack (Gluetun + qBittorrent) deployed from `hermes/`.
   - QNAP NAS (`10.30.1.20`)
   - Raspberry Pi `photon` — CUPS server (`10.30.1.90`)
   - Raspberry Pi `hassio` — Home Assistant (`10.30.1.60`)

@@ -10,9 +10,12 @@ provider. This directory is the source of truth for what runs on that node.
 - **Workload**: general-purpose Ubuntu 24.04 VMs (cloud-init). Independent of the k8s
   clusters, though it shares the `10.30.1.0/24` subnet with the Talos `cereal`
   cluster (`10.30.1.50-.53`). These VMs use `10.30.1.56-.59` (node is `.55`).
-  - `hermes` (`10.30.1.57`, vmid `157`, 2c/8 GB/40 GB): bare host for the Nous Research
-    [Hermes Agent](https://github.com/nousresearch/hermes-agent). Terraform only provisions
-    the VM + injects the SSH key; Hermes itself is installed manually on the guest.
+  - `hermes` (`10.30.1.57`, vmid `157`, 2c/8 GB/40 GB + 1TB USB HDD passthrough at
+    `/mnt/data`): host for the Nous Research
+    [Hermes Agent](https://github.com/nousresearch/hermes-agent) and the Docker media
+    stack (Gluetun + qBittorrent) managed from [`../hermes/`](../hermes/README.md).
+    Terraform only provisions the VM + injects the SSH key; workloads are deployed
+    onto the guest (Hermes manually, the media stack via `hermes/deploy-to-hermes.sh`).
 - **State**: local Terraform state, no remote backend (mirrors `oracle/`).
 
 > Capacity is modest (4 threads / 15 GB / ~56 GB `local-lvm`). Realistically this is

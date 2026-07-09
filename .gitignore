@@ -28,6 +28,11 @@ pxe/generated/
 pxe/.deploy/
 pxe/assets/
 
+# === Hermes media stack ===
+# The .env (NordVPN key) is generated on the remote host only; block it
+# locally just in case.
+hermes/.env
+
 # === Direnv ===
 .direnv/
 
