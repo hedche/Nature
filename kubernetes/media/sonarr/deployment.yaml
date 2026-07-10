@@ -29,6 +29,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: media-env
+            - secretRef:
+                name: media-secrets
           volumeMounts:
             - name: config
               mountPath: /config

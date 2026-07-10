@@ -25,29 +25,34 @@ Design constraints (do not "simplify" these away):
 - Images are pinned in `kustomization.yaml` and bumped automatically by Flux
   image automation (`image-automation.yaml`, lsio `-ls<build>` tag ordering).
 
-## One-time configuration (after first deploy)
+## Configuration (after first deploy or cluster rebuild)
 
-1. **qBittorrent** (`http://10.30.1.57:8080`, creds in root `secrets.yaml`
-   under `qbittorrent:`): ensure categories `tv` → `/data/torrents/tv` and
-   `movies` → `/data/torrents/movies` exist.
-2. **Sonarr**: Settings → Media Management → enable hardlinks; add root folder
-   `/data/media/tv`. Settings → Download Clients → qBittorrent: host
-   `10.30.1.57`, port `8080`, qBittorrent creds, category `tv`. Do **not**
-   add a remote path mapping — both sides see identical `/data/...` paths.
-3. **Radarr**: same, with root folder `/data/media/movies` and category
-   `movies`.
-4. **Prowlarr**: Settings → Apps → add Sonarr
-   (`http://sonarr.media.svc.cluster.local:8989`, API key from Sonarr →
-   Settings → General) and Radarr
-   (`http://radarr.media.svc.cluster.local:7878` + key); Prowlarr server URL
-   `http://prowlarr.media.svc.cluster.local:9696`. Add indexers — they sync to
-   both apps.
-5. **VPN proxy for ISP-blocked indexers only**: Settings → Indexers → Add
+Almost everything is applied by the idempotent wiring script:
+
+```sh
+./kubernetes/media/configure-media.sh
+```
+
+It reads the root `secrets.yaml` (`qbittorrent:` WebUI creds, `arr:` admin
+account, `media-secrets` API keys) and applies: qBittorrent categories
+(`tv` → `/data/torrents/tv`, `movies` → `/data/torrents/movies`), the shared
+Forms-auth admin account on all three UIs, root folders (`/data/media/tv`,
+`/data/media/movies`), the qBittorrent download client in Sonarr/Radarr
+(host `10.30.1.57:8080` — **no remote path mapping**; both sides see
+identical `/data/...` paths), and the Prowlarr→Sonarr/Radarr application
+links. API keys are not generated state: they're pinned via the
+`media-secrets` Secret (`scripts/secrets.sh`, `SONARR__AUTH__APIKEY` etc.)
+into the pods, so a config-PVC loss + re-run of this script restores the
+whole setup. Prereqs: `kubectl` (cereal context), `yq`, `python3`.
+
+Still manual (deliberately — they're accounts/choices, not derivable state):
+
+1. **Indexers** in Prowlarr: Settings → Indexers; they sync to Sonarr/Radarr
+   automatically.
+2. **VPN proxy for ISP-blocked indexers only**: Settings → Indexers → Add
    Indexer Proxy → HTTP, host `10.30.1.57`, port `8888`, tag `vpn`; apply the
    `vpn` tag to any indexer your ISP blocks. Untagged indexers stay direct.
-6. Record the three generated API keys in root `secrets.yaml` (human backup
-   only; nothing consumes them from there).
-7. Plex needs nothing: it reads `/mnt/data/media` locally on hermes; new
+3. Plex needs nothing: it reads `/mnt/data/media` locally on hermes; new
    imports appear on library scan.
 
 ## Failure modes

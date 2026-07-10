@@ -11,3 +11,13 @@ data:
   PUID: "1000"
   PGID: "1000"
   TZ: "Europe/London"
+  # Servarr env-var config (each app only reads its own prefix). Forms auth,
+  # required for all addresses; the admin account itself is applied from
+  # secrets.yaml by configure-media.sh, and API keys are pinned by the
+  # media-secrets Secret (scripts/secrets.sh) so they survive PVC loss.
+  SONARR__AUTH__METHOD: "Forms"
+  SONARR__AUTH__REQUIRED: "Enabled"
+  RADARR__AUTH__METHOD: "Forms"
+  RADARR__AUTH__REQUIRED: "Enabled"
+  PROWLARR__AUTH__METHOD: "Forms"
+  PROWLARR__AUTH__REQUIRED: "Enabled"
