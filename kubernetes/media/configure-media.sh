@@ -163,6 +163,40 @@ def ensure_downloadclient(app, cat_field, cat):
     print(f"{app}: add download client -> HTTP {st}" + ("" if st == 201 else f" {r}"))
 
 
+def ensure_vpn_indexer_proxy():
+    """'vpn' tag + gluetun HTTP proxy so ISP-blocked indexers (tagged vpn)
+    egress via the NordVPN tunnel on hermes. Cloudflare-protected indexers
+    are NOT fixed by this (the challenge fires regardless of egress IP)."""
+    _, tags = api("prowlarr", "/tag")
+    tag = next((t for t in tags if t["label"] == "vpn"), None)
+    if tag is None:
+        _, tag = api("prowlarr", "/tag", {"label": "vpn"})
+        print("prowlarr: created tag vpn")
+    _, proxies = api("prowlarr", "/indexerproxy")
+    if any(p["name"] == "VPN (gluetun)" for p in proxies):
+        print("prowlarr: indexer proxy VPN (gluetun) present")
+        return
+    payload = {
+        "name": "VPN (gluetun)",
+        "implementation": "Http",
+        "implementationName": "Http",
+        "configContract": "HttpSettings",
+        "tags": [tag["id"]],
+        "fields": [
+            {"name": "host", "value": "10.30.1.57"},
+            {"name": "port", "value": 8888},
+            {"name": "username", "value": ""},
+            {"name": "password", "value": ""},
+        ],
+    }
+    st, r = api("prowlarr", "/indexerproxy/test", payload)
+    if st != 200:
+        print(f"prowlarr: VPN proxy test FAILED -> HTTP {st} {r}")
+        return
+    st, r = api("prowlarr", "/indexerproxy", payload)
+    print(f"prowlarr: add indexer proxy VPN (gluetun) -> HTTP {st}" + ("" if st == 201 else f" {r}"))
+
+
 def ensure_prowlarr_app(name, base_url, key_env, cats):
     _, apps = api("prowlarr", "/applications")
     if any(a["name"] == name for a in apps):
@@ -218,6 +252,7 @@ ensure_rootfolder("sonarr", "/data/media/tv")
 ensure_rootfolder("radarr", "/data/media/movies")
 ensure_downloadclient("sonarr", "tvCategory", "tv")
 ensure_downloadclient("radarr", "movieCategory", "movies")
+ensure_vpn_indexer_proxy()
 ensure_prowlarr_app("Sonarr", "http://sonarr.media.svc.cluster.local:8989", "SONARR_KEY",
                     [5000, 5010, 5020, 5030, 5040, 5045, 5050])
 ensure_prowlarr_app("Radarr", "http://radarr.media.svc.cluster.local:7878", "RADARR_KEY",
