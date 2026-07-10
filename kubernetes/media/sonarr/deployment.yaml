@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sonarr
+  namespace: media
+  labels:
+    app.kubernetes.io/name: sonarr
+    app.kubernetes.io/part-of: media
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # RWO config PVC: never two pods at once
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sonarr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sonarr
+        app.kubernetes.io/part-of: media
+    spec:
+      containers:
+        - name: sonarr
+          image: lscr.io/linuxserver/sonarr:4.0.19.2979-ls319
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8989
+          envFrom:
+            - configMapRef:
+                name: media-env
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 60
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        # Config (SQLite) must stay on ceph-block — SQLite corrupts on NFS.
+        - name: config
+          persistentVolumeClaim:
+            claimName: sonarr-config
+        # Whole /mnt/data export mounted at /data so paths are byte-identical
+        # to qBittorrent's container view (/data/torrents, /data/media) —
+        # no remote path mappings, and hardlink imports stay on one
+        # filesystem. Inline NFS on purpose: a PV/PVC pair per consumer adds
+        # cluster-scoped objects and reclaim-policy footguns for no benefit.
+        - name: data
+          nfs:
+            server: 10.30.1.57
+            path: /mnt/data

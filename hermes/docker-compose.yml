@@ -18,10 +18,15 @@ services:
             # to route out eth0 instead of into the tunnel. LAN-only; torrent
             # traffic still has no route except the VPN.
             FIREWALL_OUTBOUND_SUBNETS: 10.30.1.0/24
-            # Required for LAN clients to reach the published WebUI port —
+            # Required for LAN clients to reach the published ports —
             # without it gluetun's firewall drops inbound connections on eth0
             # (localhost still works, which can mask the problem).
-            FIREWALL_INPUT_PORTS: "8080"
+            FIREWALL_INPUT_PORTS: "8080,8888"
+            # Built-in HTTP proxy (:8888). Prowlarr on cereal points tagged
+            # ISP-blocked indexers at it; traffic entering here egresses via
+            # the VPN tunnel. Do NOT route whole *arr apps through it —
+            # metadata providers rate-limit/ban shared VPN IPs.
+            HTTPPROXY: "on"
             TZ: Europe/London
         ports:
             # qBittorrent WebUI — must be published here: qbittorrent shares
@@ -31,6 +36,9 @@ services:
             # because Tailscale accept-routes on hermes steers Docker DNAT
             # replies into tailscale0 and breaks direct LAN access.
             - "127.0.0.1:8080:8080/tcp"
+            # gluetun HTTP proxy — same localhost-only + socket-proxy pattern
+            # (gluetun-httpproxy systemd units serve LAN :8888).
+            - "127.0.0.1:8888:8888/tcp"
         volumes:
             # OS disk on purpose: survives absence of the USB data disk (nofail).
             - /home/ubuntu/appdata/gluetun:/gluetun

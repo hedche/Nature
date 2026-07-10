@@ -183,17 +183,40 @@ ssh "${HERMES_SSH_HOST}" "
     docker compose -p '${COMPOSE_PROJECT}' ps
 "
 
-# --- Install the LAN->localhost WebUI proxy units (see systemd/ + README) ---
+# --- Install the LAN->localhost proxy units (see systemd/ + README) ---
 # Must run after compose up: an older stack may have held 0.0.0.0:8080, which
 # the socket's 10.30.1.57:8080 bind collides with until Docker rebinds to
-# 127.0.0.1 only.
+# 127.0.0.1 only. gluetun-httpproxy (:8888) serves Prowlarr's VPN indexer
+# proxy the same way.
 ssh "${HERMES_SSH_HOST}" "
     set -eu
     sudo install -m 644 '${HERMES_DIR}/systemd/qbittorrent-proxy.socket' /etc/systemd/system/
     sudo install -m 644 '${HERMES_DIR}/systemd/qbittorrent-proxy.service' /etc/systemd/system/
+    sudo install -m 644 '${HERMES_DIR}/systemd/gluetun-httpproxy.socket' /etc/systemd/system/
+    sudo install -m 644 '${HERMES_DIR}/systemd/gluetun-httpproxy.service' /etc/systemd/system/
     sudo systemctl daemon-reload
-    sudo systemctl enable qbittorrent-proxy.socket >/dev/null 2>&1
-    sudo systemctl restart qbittorrent-proxy.socket
+    sudo systemctl enable qbittorrent-proxy.socket gluetun-httpproxy.socket >/dev/null 2>&1
+    sudo systemctl restart qbittorrent-proxy.socket gluetun-httpproxy.socket
+"
+
+# --- NFS export of /mnt/data for the cereal *arr stack (see README) ---
+# The preflight above already guarantees /mnt/data is mounted; the systemd
+# drop-in keeps nfs-server from ever exporting the empty stub dir on a boot
+# where the USB disk is absent.
+ssh "${HERMES_SSH_HOST}" "
+    set -eu
+    if ! dpkg -s nfs-kernel-server >/dev/null 2>&1; then
+        echo 'Installing nfs-kernel-server...'
+        sudo apt-get update -qq
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-kernel-server
+    fi
+    sudo install -d /etc/exports.d
+    sudo install -m 644 '${HERMES_DIR}/nfs/nature-media.exports' /etc/exports.d/nature-media.exports
+    sudo install -d /etc/systemd/system/nfs-server.service.d
+    sudo install -m 644 '${HERMES_DIR}/systemd/nfs-server-data-disk.conf' /etc/systemd/system/nfs-server.service.d/nature-data-disk.conf
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now nfs-server >/dev/null 2>&1
+    sudo exportfs -ra
 "
 
 cat <<EOF
@@ -201,6 +224,8 @@ Media stack deployed.
 
 qBittorrent WebUI: http://10.30.1.57:8080
 Plex:              http://10.30.1.57:32400/web
+VPN HTTP proxy:    http://10.30.1.57:8888 (Prowlarr indexer proxy)
+NFS export:        10.30.1.57:/mnt/data (cereal media namespace)
 Remote dir:        ${HERMES_SSH_HOST}:${HERMES_DIR}
 First run? Get the temporary WebUI password with:
   ssh ${HERMES_SSH_HOST} "docker logs qbittorrent 2>&1 | grep -i password"

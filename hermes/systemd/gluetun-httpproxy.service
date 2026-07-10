@@ -1,0 +1,13 @@
+[Unit]
+Description=Proxy LAN :8888 to gluetun's HTTP proxy published on 127.0.0.1
+# Same mechanism as qbittorrent-proxy.service: Tailscale accept-routes on
+# hermes hijacks replies from Docker's DNAT/FORWARD path into tailscale0, so
+# LAN connections are terminated at a host socket and re-originated to
+# localhost. Used by Prowlarr on cereal to route ISP-blocked indexers through
+# the VPN (traffic entering gluetun's proxy egresses via the NordVPN tunnel).
+Requires=gluetun-httpproxy.socket
+After=network.target
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:8888
+PrivateTmp=true

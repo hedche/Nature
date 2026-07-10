@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prowlarr
+  namespace: media
+  labels:
+    app.kubernetes.io/name: prowlarr
+    app.kubernetes.io/part-of: media
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: prowlarr
+      port:
+        number: 9696
+  tls:
+    - hosts:
+        # Becomes the tailnet machine name: https://prowlarr.<tailnet>.ts.net
+        - prowlarr

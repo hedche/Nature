@@ -1,0 +1,7 @@
+# Managed by the Nature repo (hermes/deploy-to-hermes.sh) — do not edit on host.
+# Whole-disk export on purpose: Sonarr/Radarr on cereal must see /data/torrents
+# and /data/media as one filesystem so hardlinks/renames never cross a mount
+# boundary. all_squash+anonuid/gid=1000 maps every client identity to
+# ubuntu:ubuntu, matching qBittorrent's PUID/PGID, so ownership is
+# deterministic no matter what uid the k8s pods present.
+/mnt/data 10.30.1.0/24(rw,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000)

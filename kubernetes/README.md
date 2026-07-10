@@ -7,6 +7,8 @@ This directory contains Kubernetes manifests, Helm values, and Kustomize configu
 - `flux/` — Flux bootstrap manifests and Flux Kustomizations.
 - `tailscale/` — Tailscale operator and connector resources.
 - `headlamp/` — private Kubernetes dashboard exposed through Tailscale Ingress.
+- `peanut/` — Trello daily-briefing assistant (web app + CronJob).
+- `media/` — Sonarr/Radarr/Prowlarr, pointed at qBittorrent + NFS storage on the hermes VM (see `media/README.md`).
 
 ## Secret Management
 

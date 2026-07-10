@@ -12,11 +12,12 @@ Nature LAN 10.30.1.0/24                hermes VM (10.30.1.57)
 ┌──────────────┐                      ┌─────────────────────────────────┐
 │ Mac browser  │── http://:8080 ──────│ gluetun ◄── network namespace ──┤
 │ Sonarr/Radarr│      (WebUI/API)     │   │           qbittorrent       │
-└──────────────┘                      │   ▼                             │
-                                      │ WireGuard tunnel (NordVPN)      │
-                                      └───┼─────────────────────────────┘
-                                          ▼  ALL torrent traffic,
-                                     internet  both directions
+│  (cereal,    │── proxy :8888 ───────│   │                             │
+│ ../kubernetes│      (VPN egress)    │   ▼                             │
+│   /media/)   │                      │ WireGuard tunnel (NordVPN)      │
+└──────┬───────┘                      └───┼─────────────────────────────┘
+       │ NFS 10.30.1.57:/mnt/data ──► /data  ▼  ALL torrent traffic,
+       └─ (torrents + media library)  internet  both directions
 ```
 
 - **Kill switch**: qBittorrent has no network interface of its own
@@ -60,6 +61,9 @@ The script is idempotent. On each run it:
 5. Writes the NordVPN key from `secrets.yaml` to a `chmod 600` `.env` on
    hermes (the secret never lands in git or in this directory).
 6. `docker compose -p nature-hermes-media up -d --remove-orphans`.
+7. Installs/refreshes the `systemd-socket-proxyd` units (qBittorrent WebUI
+   `:8080`, gluetun HTTP proxy `:8888`) and the NFS export of `/mnt/data`
+   (see below).
 
 ## One-time qBittorrent setup
 
@@ -67,7 +71,8 @@ The script is idempotent. On each run it:
    `ssh ubuntu@10.30.1.57 "docker logs qbittorrent 2>&1 | grep -i password"`
 2. Log in at <http://10.30.1.57:8080> as `admin`, set a permanent password
    (Options → WebUI) and record it under `qbittorrent:` in `secrets.yaml` —
-   the future Sonarr/Radarr stack authenticates with it.
+   the Sonarr/Radarr stack on cereal (`../kubernetes/media/`) authenticates
+   with it.
 3. Options → Downloads: default save path `/data/torrents`, enable incomplete
    folder `/data/torrents/incomplete`.
 4. Create categories `tv` → `/data/torrents/tv` and `movies` →
@@ -88,13 +93,49 @@ arbitrary save paths, and the *arr apps handle credentials natively.
   ignore it.
 - **Libraries**: media mounts are read-only. Point libraries at
   `/data/torrents/movies` + `/data/media/movies` (Movies) and
-  `/data/torrents/tv` + `/data/media/tv` (TV). The `/data/media` tree is empty
-  for now — it is the future Sonarr/Radarr-managed layout; the torrent dirs
-  let you watch straight away.
+  `/data/torrents/tv` + `/data/media/tv` (TV). The `/data/media` tree is the
+  Sonarr/Radarr-managed layout (hardlink imports from the cereal media
+  namespace); the torrent dirs let you watch before an import lands.
 - **Caveats**: 2 vCPU and no GPU passthrough — expect direct play; heavy
   transcodes will struggle (set clients to "Original" quality). Plex metadata
   lives in `/home/ubuntu/appdata/plex` on the 40 GB OS disk — keep an eye on
   it as the library grows.
+
+## NFS export for the cereal media namespace
+
+The Sonarr/Radarr pods on cereal (`../kubernetes/media/`) must see the same
+filesystem qBittorrent downloads to, so hardlink imports work and no remote
+path mappings are needed. The deploy script installs `nfs-kernel-server` and
+exports the whole data disk (`nfs/nature-media.exports` →
+`/etc/exports.d/nature-media.exports`):
+
+```
+/mnt/data 10.30.1.0/24(rw,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000)
+```
+
+- **One export of the whole disk** so `/data/torrents` → `/data/media`
+  hardlinks/renames never cross a mount boundary on the client.
+- **`all_squash,anonuid/gid=1000`**: every client identity maps to
+  `ubuntu:ubuntu`, matching qBittorrent's `PUID/PGID` — ownership is
+  deterministic no matter what uid the pods present.
+- **Disk-absent guard**: `systemd/nfs-server-data-disk.conf` (drop-in,
+  `RequiresMountsFor=/mnt/data`) stops `nfs-server` from ever exporting the
+  empty stub dir when the `nofail` USB disk is missing at boot. After
+  reattaching: `sudo systemctl start nfs-server`.
+- NFS is host-terminated, so the Tailscale × Docker DNAT breakage below does
+  not apply to it.
+
+## VPN HTTP proxy for Prowlarr (`:8888`)
+
+Only the download client belongs behind the VPN — *arr apps routed through
+shared VPN IPs get rate-limited/banned by their metadata providers. The one
+exception is UK-ISP-blocked indexer sites, which Prowlarr (the single indexer
+egress for the stack) routes per-indexer through gluetun's built-in HTTP proxy
+(`HTTPPROXY=on`, `:8888`): traffic entering it egresses via the NordVPN
+tunnel. Same LAN plumbing as the WebUI: Docker publishes `127.0.0.1:8888`
+only, and `systemd/gluetun-httpproxy.*` serves `10.30.1.57:8888` to the LAN.
+Configure in Prowlarr as an HTTP Indexer Proxy tagged `vpn` (see
+`../kubernetes/media/README.md`).
 
 ## Verifying the kill switch
 

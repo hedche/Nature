@@ -23,3 +23,12 @@
 - **Storage**: 1TB USB HDD whole-disk passthrough at `/mnt/data` (`nofail`) holds
   `torrents/` and `media/`; container configs deliberately live on the OS disk at
   `/home/ubuntu/appdata/`. See `../proxmox/AGENTS.md` for the disk-attach caveat.
+- **NFS export**: `/mnt/data` is exported to `10.30.1.0/24` for the cereal `media`
+  namespace (`../kubernetes/media/` — Sonarr/Radarr mount it at `/data`, matching
+  qBittorrent's container paths so imports are hardlinks). Repo-managed:
+  `nfs/nature-media.exports` → `/etc/exports.d/` plus an `nfs-server` drop-in
+  (`RequiresMountsFor=/mnt/data`, never export the stub dir), installed by the
+  deploy script. gluetun also exposes its HTTP proxy on `:8888` (localhost publish
+  + `gluetun-httpproxy` socket-proxy units) so Prowlarr can route ISP-blocked
+  indexers through the VPN — never route whole *arr apps through it (metadata
+  providers ban shared VPN IPs).

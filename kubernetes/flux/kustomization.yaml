@@ -8,3 +8,4 @@ resources:
   - headlamp.yaml
   - rook-ceph.yaml
   - peanut.yaml
+  - media.yaml

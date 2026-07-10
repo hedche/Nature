@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: media-env
+  namespace: media
+  labels:
+    app.kubernetes.io/part-of: media
+data:
+  # Must stay 1000/1000: matches qBittorrent's PUID/PGID on hermes and the
+  # anonuid/anongid the NFS export squashes every client identity to.
+  PUID: "1000"
+  PGID: "1000"
+  TZ: "Europe/London"

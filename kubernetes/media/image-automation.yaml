@@ -1,0 +1,117 @@
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: sonarr
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: media
+spec:
+  image: lscr.io/linuxserver/sonarr
+  interval: 30m
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: sonarr
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: media
+spec:
+  imageRepositoryRef:
+    name: sonarr
+  filterTags:
+    # linuxserver tags: <app version>-ls<build>; order by the lsio build number.
+    pattern: '^\d+\.\d+\.\d+\.\d+-ls(?P<build>\d+)$'
+    extract: '$build'
+  policy:
+    numerical:
+      order: asc
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: radarr
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: media
+spec:
+  image: lscr.io/linuxserver/radarr
+  interval: 30m
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: radarr
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: media
+spec:
+  imageRepositoryRef:
+    name: radarr
+  filterTags:
+    pattern: '^\d+\.\d+\.\d+\.\d+-ls(?P<build>\d+)$'
+    extract: '$build'
+  policy:
+    numerical:
+      order: asc
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: prowlarr
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: media
+spec:
+  image: lscr.io/linuxserver/prowlarr
+  interval: 30m
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: prowlarr
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: media
+spec:
+  imageRepositoryRef:
+    name: prowlarr
+  filterTags:
+    pattern: '^\d+\.\d+\.\d+\.\d+-ls(?P<build>\d+)$'
+    extract: '$build'
+  policy:
+    numerical:
+      order: asc
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageUpdateAutomation
+metadata:
+  name: media
+  namespace: flux-system
+spec:
+  interval: 30m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  git:
+    checkout:
+      ref:
+        branch: main
+    commit:
+      author:
+        email: fluxcdbot@users.noreply.github.com
+        name: fluxcdbot
+      messageTemplate: |-
+        chore(media): update images
+
+        {{- range .Changed.Changes }}
+        - {{ .OldValue }} -> {{ .NewValue }}
+        {{- end }}
+    push:
+      branch: main
+  policySelector:
+    matchLabels:
+      app.kubernetes.io/part-of: media
+  update:
+    path: ./kubernetes/media
+    strategy: Setters
