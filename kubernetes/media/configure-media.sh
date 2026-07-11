@@ -4,6 +4,8 @@
 #   - Sonarr/Radarr/Prowlarr admin account (Forms auth) from secrets.yaml
 #   - Sonarr/Radarr root folders + qBittorrent download client
 #   - Prowlarr -> Sonarr/Radarr application links (full sync)
+#   - Prowlarr indexer proxies: VPN (gluetun, tag vpn) + FlareSolverr
+#     (tag flaresolverr)
 #
 # Everything it applies is derived from this repo + the root secrets.yaml
 # (qbittorrent: WebUI creds, arr: webui creds, kubernetes.secrets
@@ -197,6 +199,39 @@ def ensure_vpn_indexer_proxy():
     print(f"prowlarr: add indexer proxy VPN (gluetun) -> HTTP {st}" + ("" if st == 201 else f" {r}"))
 
 
+def ensure_flaresolverr_proxy():
+    """'flaresolverr' tag + the in-cluster FlareSolverr service so
+    Cloudflare-protected indexers (tagged flaresolverr) get their challenges
+    solved by a headless browser. Orthogonal to the vpn tag; an indexer can
+    carry both."""
+    _, tags = api("prowlarr", "/tag")
+    tag = next((t for t in tags if t["label"] == "flaresolverr"), None)
+    if tag is None:
+        _, tag = api("prowlarr", "/tag", {"label": "flaresolverr"})
+        print("prowlarr: created tag flaresolverr")
+    _, proxies = api("prowlarr", "/indexerproxy")
+    if any(p["name"] == "FlareSolverr" for p in proxies):
+        print("prowlarr: indexer proxy FlareSolverr present")
+        return
+    payload = {
+        "name": "FlareSolverr",
+        "implementation": "FlareSolverr",
+        "implementationName": "FlareSolverr",
+        "configContract": "FlareSolverrSettings",
+        "tags": [tag["id"]],
+        "fields": [
+            {"name": "host", "value": "http://flaresolverr.media.svc.cluster.local:8191"},
+            {"name": "requestTimeout", "value": 60},
+        ],
+    }
+    st, r = api("prowlarr", "/indexerproxy/test", payload)
+    if st != 200:
+        print(f"prowlarr: FlareSolverr proxy test FAILED -> HTTP {st} {r}")
+        return
+    st, r = api("prowlarr", "/indexerproxy", payload)
+    print(f"prowlarr: add indexer proxy FlareSolverr -> HTTP {st}" + ("" if st == 201 else f" {r}"))
+
+
 def ensure_prowlarr_app(name, base_url, key_env, cats):
     _, apps = api("prowlarr", "/applications")
     if any(a["name"] == name for a in apps):
@@ -222,6 +257,36 @@ def ensure_prowlarr_app(name, base_url, key_env, cats):
         return
     st, r = api("prowlarr", "/applications", payload)
     print(f"prowlarr: add app {name} -> HTTP {st}" + ("" if st == 201 else f" {r}"))
+
+
+MIN_SEEDERS = 3
+
+
+def harden_indexers(app):
+    """Per-indexer anti-junk hardening on Sonarr/Radarr:
+      - rejectBlocklistedTorrentHashesWhileGrabbing: refuse a hash we've already
+        blocklisted (e.g. a failed fake release) even if another indexer offers it.
+      - minimumSeeders: drop dead / suspiciously low-seed results.
+    These are *arr-side fields on each Prowlarr-synced indexer. A Prowlarr full
+    resync can reset them, so this is re-applied every run (idempotent)."""
+    _, indexers = api(app, "/indexer")
+    for ix in indexers:
+        changed = False
+        if not ix.get("enableRss") and not ix.get("enableAutomaticSearch"):
+            pass
+        for f in ix.get("fields", []):
+            if f["name"] == "rejectBlocklistedTorrentHashesWhileGrabbing" and f.get("value") is not True:
+                f["value"] = True
+                changed = True
+            if f["name"] == "minimumSeeders" and (f.get("value") or 1) < MIN_SEEDERS:
+                f["value"] = MIN_SEEDERS
+                changed = True
+        if not changed:
+            print(f"{app}: indexer {ix['name']} already hardened")
+            continue
+        st, r = api(app, f"/indexer/{ix['id']}", ix, method="PUT")
+        print(f"{app}: harden indexer {ix['name']} (min seeders {MIN_SEEDERS}, reject blocklisted hashes) -> HTTP {st}"
+              + ("" if st in (200, 202) else f" {r}"))
 
 
 def qbittorrent_categories():
@@ -253,9 +318,12 @@ ensure_rootfolder("radarr", "/data/media/movies")
 ensure_downloadclient("sonarr", "tvCategory", "tv")
 ensure_downloadclient("radarr", "movieCategory", "movies")
 ensure_vpn_indexer_proxy()
+ensure_flaresolverr_proxy()
 ensure_prowlarr_app("Sonarr", "http://sonarr.media.svc.cluster.local:8989", "SONARR_KEY",
                     [5000, 5010, 5020, 5030, 5040, 5045, 5050])
 ensure_prowlarr_app("Radarr", "http://radarr.media.svc.cluster.local:7878", "RADARR_KEY",
                     [2000, 2010, 2020, 2030, 2040, 2045, 2050, 2060])
+harden_indexers("sonarr")
+harden_indexers("radarr")
 print("media wiring applied.")
 PYEOF

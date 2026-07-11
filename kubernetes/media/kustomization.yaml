@@ -6,6 +6,7 @@ resources:
   - sonarr
   - radarr
   - prowlarr
+  - flaresolverr
   - image-automation.yaml
 
 images:
@@ -15,3 +16,5 @@ images:
     newTag: 6.2.1.10461-ls309 # {"$imagepolicy": "flux-system:radarr:tag"}
   - name: lscr.io/linuxserver/prowlarr
     newTag: 2.4.0.5397-ls153 # {"$imagepolicy": "flux-system:prowlarr:tag"}
+  - name: ghcr.io/flaresolverr/flaresolverr
+    newTag: v3.5.0 # {"$imagepolicy": "flux-system:flaresolverr:tag"}

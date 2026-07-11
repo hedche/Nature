@@ -84,6 +84,35 @@ spec:
       order: asc
 ---
 apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: flaresolverr
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: media
+spec:
+  image: ghcr.io/flaresolverr/flaresolverr
+  interval: 30m
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: flaresolverr
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: media
+spec:
+  imageRepositoryRef:
+    name: flaresolverr
+  filterTags:
+    # Not an lsio image: plain vX.Y.Z release tags, ordered by semver
+    # (excludes latest/prerelease tags).
+    pattern: '^v\d+\.\d+\.\d+$'
+  policy:
+    semver:
+      range: '>=3.0.0'
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageUpdateAutomation
 metadata:
   name: media

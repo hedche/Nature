@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flaresolverr
+  namespace: media
+  labels:
+    app.kubernetes.io/name: flaresolverr
+    app.kubernetes.io/part-of: media
+spec:
+  replicas: 1
+  # Stateless (no config PVC), so the default RollingUpdate is safe — unlike
+  # the *arrs, which need Recreate for their RWO ceph-block volumes.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flaresolverr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: flaresolverr
+        app.kubernetes.io/part-of: media
+    spec:
+      containers:
+        - name: flaresolverr
+          image: ghcr.io/flaresolverr/flaresolverr:v3.5.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8191
+          # Not an lsio image: no PUID/PGID or *ARR__AUTH__* env, so it doesn't
+          # take the media-env ConfigMap. TZ matches media-env's Europe/London.
+          env:
+            - name: TZ
+              value: Europe/London
+            - name: LOG_LEVEL
+              value: info
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 60
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            # Spawns a headless Chromium per challenge; needs more headroom
+            # than the *arrs.
+            limits:
+              cpu: "1"
+              memory: 1Gi
