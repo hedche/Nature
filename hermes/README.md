@@ -113,11 +113,15 @@ it skips with a warning if the permanent password has not been recorded yet.
   (valid ~4 min) and deploy with it:
   `PLEX_CLAIM=claim-XXXX ./deploy-to-hermes.sh`. Already-claimed servers
   ignore it.
-- **Libraries**: media mounts are read-only. Point libraries at
-  `/data/torrents/movies` + `/data/media/movies` (Movies) and
-  `/data/torrents/tv` + `/data/media/tv` (TV). The `/data/media` tree is the
-  Sonarr/Radarr-managed layout (hardlink imports from the cereal media
-  namespace); the torrent dirs let you watch before an import lands.
+- **Libraries**: media mounts are read-only. Point each library at **only**
+  its `/data/media` folder — `/data/media/movies` (Movies) and
+  `/data/media/tv` (TV) — the clean, renamed, deduplicated layout the cereal
+  Sonarr/Radarr namespace builds by hardlink-importing completed downloads.
+  Do **not** add the `/data/torrents/*` dirs: imports are hardlinks (same
+  inode in both trees), so Plex would index every item twice, and
+  `/data/torrents` also holds raw release names, season packs, the
+  `incomplete/` dir, and any junk/fake releases that Plex would match poorly
+  or shouldn't see at all.
 - **Caveats**: 2 vCPU and no GPU passthrough — expect direct play; heavy
   transcodes will struggle (set clients to "Original" quality). Plex metadata
   lives in `/home/ubuntu/appdata/plex` on the 40 GB OS disk — keep an eye on
