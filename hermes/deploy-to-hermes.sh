@@ -219,6 +219,12 @@ ssh "${HERMES_SSH_HOST}" "
     sudo exportfs -ra
 "
 
+# --- qBittorrent policy (malware guard + category paths) ---
+# Best-effort: needs the WebUI password in secrets.yaml. The script skips
+# cleanly on a first deploy before the permanent password is recorded.
+QB_URL="http://10.30.1.57:8080" "${SCRIPT_DIR}/configure-qbittorrent.sh" || \
+    echo "WARNING: qBittorrent policy not applied (see message above); re-run ./hermes/configure-qbittorrent.sh once creds are set." >&2
+
 cat <<EOF
 Media stack deployed.
 

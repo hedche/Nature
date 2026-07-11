@@ -81,6 +81,28 @@ The script is idempotent. On each run it:
 WebUI authentication stays **on** (no LAN bypass): the WebUI can write to
 arbitrary save paths, and the *arr apps handle credentials natively.
 
+## qBittorrent policy (`configure-qbittorrent.sh`)
+
+`./configure-qbittorrent.sh` (also run at the end of `deploy-to-hermes.sh`)
+applies two reproducible settings, since qBittorrent's config lives in appdata
+and not in git:
+
+- **Malware guard** — qBittorrent's "excluded file names" is set to a list of
+  executable/script/installer extensions (`*.exe`, `*.scr`, `*.bat`, `*.ps1`,
+  `*.msi`, `*.jar`, …; full list in the script). Any matching file inside *any*
+  torrent is marked "do not download", no matter how the torrent was added.
+  qBittorrent is the only downloader in the stack, so this is the single
+  chokepoint: a fake release whose payload is a `.exe` (a common trick — Sonarr
+  will happily grab one from a public indexer) downloads nothing. Video/audio/
+  subtitle files are never matched.
+- **Category paths** — `use_category_paths_in_manual_mode` is enabled so a
+  torrent with the `tv`/`movies` category lands in `/data/torrents/tv` etc.,
+  instead of piling into the `/data/torrents` root. (Imports work either way —
+  Sonarr/Radarr read the path from qBittorrent — but this keeps things tidy.)
+
+The script is idempotent and reads the WebUI credentials from `secrets.yaml`;
+it skips with a warning if the permanent password has not been recorded yet.
+
 ## Plex
 
 - **`http://10.30.1.57:32400/web`** — runs with `network_mode: host`

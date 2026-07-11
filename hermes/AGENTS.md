@@ -9,6 +9,12 @@
   (`network_mode: service:gluetun` = kill switch). Plex and anything else must NOT be
   routed through the VPN. Secrets live in `secrets.yaml` under `nordvpn:` (WireGuard
   key) and `qbittorrent:` (WebUI credentials — use these for Sonarr/Radarr/API work).
+- **qBittorrent policy is repo-managed** via `configure-qbittorrent.sh` (run by the
+  deploy script): a malware guard (executable/script extensions set as qBit "excluded
+  file names" — the stack-wide chokepoint, since qBittorrent is the only downloader)
+  and category paths (`tv`/`movies` torrents land in their subfolder). qBit config
+  lives in appdata, not git, so never hand-set these in the WebUI — change the script
+  and re-run.
 - **Tailscale × Docker gotcha (will bite again)**: hermes runs a manually-installed
   tailscaled (`/home/ubuntu/bin/`, custom unit) with accept-routes, which puts
   `10.30.1.0/24` in routing table 52 and silently breaks *any* Docker-published port
