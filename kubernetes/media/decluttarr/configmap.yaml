@@ -15,9 +15,9 @@ data:
   config.yaml: |
     general:
       log_level: INFO
-      # Dry-run: logs what it WOULD remove without touching anything. Flip to
-      # false once the logs confirm it targets the right (dead) torrents.
-      test_run: true
+      # Live: dry-run confirmed it targeted only dead torrents. Set back to true
+      # to return to dry-run at any time.
+      test_run: false
       timer: 10   # minutes between queue sweeps
 
     job_defaults:
@@ -36,8 +36,12 @@ data:
       remove_metadata_missing:
       remove_failed_downloads:
       remove_failed_imports:
-      remove_slow:
-        min_speed: 100   # KB/s — below this for max_strikes sweeps = removed
+      # remove_slow is intentionally OFF: with no global download speed limit in
+      # qBittorrent it false-positives on healthy big downloads whenever the pipe
+      # is saturated (decluttarr flags them below min_speed even though they have
+      # plenty of seeds). remove_stalled already handles genuinely dead (no-peer)
+      # torrents. To enable slow-removal safely, first set a global rate limit in
+      # qBittorrent (then decluttarr auto-suspends the check when bandwidth is maxed).
 
     instances:
       sonarr:
