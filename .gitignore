@@ -3,6 +3,7 @@
 # talos/generated/
 # Local secrets file (single file strategy for homelab)
 secrets.yaml
+secrets.yaml.age
 secrets.env
 secrets/
 *.key
