@@ -6,6 +6,8 @@
 #   - Prowlarr -> Sonarr/Radarr application links (full sync)
 #   - Prowlarr indexer proxies: VPN (gluetun, tag vpn) + FlareSolverr
 #     (tag flaresolverr)
+#   - Sonarr/Radarr quality profiles restricted to web (<=1080p): no
+#     Blu-ray/Remux, no 2160p — grab smaller web releases to save disk
 #
 # Everything it applies is derived from this repo + the root secrets.yaml
 # (qbittorrent: WebUI creds, arr: webui creds, kubernetes.secrets
@@ -289,6 +291,77 @@ def harden_indexers(app):
               + ("" if st in (200, 202) else f" {r}"))
 
 
+def _blocked_quality(q):
+    """A quality we never want: Blu-ray / Remux sources, or anything above
+    1080p (2160p/4K WEB is huge too). Name+resolution test works for both
+    Radarr (Bluray-1080p, Remux-1080p, WEBDL-2160p) and Sonarr
+    (Bluray-1080p Remux, WEBDL-2160p)."""
+    name = q.get("name", "")
+    if "Bluray" in name or "Remux" in name:
+        return True
+    return (q.get("resolution") or 0) > 1080
+
+
+def _walk_items(items):
+    """Yield every leaf quality item (dict with a 'quality') in a profile's
+    items[], descending into groups (which nest their own 'items')."""
+    for it in items:
+        if it.get("quality") is not None:
+            yield it
+        for sub in it.get("items", []) or []:
+            if sub.get("quality") is not None:
+                yield sub
+
+
+def ensure_web_only_profiles(app):
+    """Restrict every quality profile to web (and smaller) releases: disallow
+    all Bluray/Remux and anything >1080p, keeping WEBDL/WEBRip/HDTV/SD <=1080p.
+    Edits profiles in place so items already assigned keep their profile but
+    stop accepting Blu-ray. A profile that would be left with nothing allowed
+    (e.g. Radarr's stock Ultra-HD, all 2160p) is skipped, not broken."""
+    _, profiles = api(app, "/qualityprofile")
+    for prof in profiles:
+        items = prof.get("items", [])
+        changed = False
+        allowed_ids = []  # (priority order, top of list = most preferred)
+        webdl_1080_id = None
+        for leaf in _walk_items(items):
+            q = leaf["quality"]
+            want = not _blocked_quality(q)
+            if leaf.get("allowed") is not want:
+                leaf["allowed"] = want
+                changed = True
+            if want:
+                allowed_ids.append(q["id"])
+                if q.get("name") == "WEBDL-1080p":
+                    webdl_1080_id = q["id"]
+        # Recompute each group's own 'allowed' from its (possibly changed) children.
+        for it in items:
+            subs = it.get("items", []) or []
+            if it.get("quality") is None and subs:
+                grp_want = any(s.get("allowed") for s in subs)
+                if it.get("allowed") is not grp_want:
+                    it["allowed"] = grp_want
+                    changed = True
+
+        if not allowed_ids:
+            print(f"{app}: profile '{prof['name']}' has no web/<=1080p quality — skipped")
+            continue
+
+        # Cutoff must reference an allowed quality; retarget if it doesn't.
+        best = webdl_1080_id or allowed_ids[0]
+        if prof.get("cutoff") not in allowed_ids:
+            prof["cutoff"] = best
+            changed = True
+
+        if not changed:
+            print(f"{app}: profile '{prof['name']}' already web-only")
+            continue
+        st, r = api(app, f"/qualityprofile/{prof['id']}", prof, method="PUT")
+        print(f"{app}: profile '{prof['name']}' -> web-only (blocked Bluray/Remux/>1080p) -> HTTP {st}"
+              + ("" if st in (200, 202) else f" {r}"))
+
+
 def qbittorrent_categories():
     cj = http.cookiejar.CookieJar()
     op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
@@ -325,5 +398,7 @@ ensure_prowlarr_app("Radarr", "http://radarr.media.svc.cluster.local:7878", "RAD
                     [2000, 2010, 2020, 2030, 2040, 2045, 2050, 2060])
 harden_indexers("sonarr")
 harden_indexers("radarr")
+ensure_web_only_profiles("sonarr")
+ensure_web_only_profiles("radarr")
 print("media wiring applied.")
 PYEOF

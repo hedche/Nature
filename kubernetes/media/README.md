@@ -58,7 +58,22 @@ It also hardens each Sonarr/Radarr indexer against junk/fake releases:
 `rejectBlocklistedTorrentHashesWhileGrabbing=true` (refuses a hash you've
 already blocklisted, even from another indexer). A Prowlarr full resync can
 reset these *arr-side fields, so just re-run the script afterwards — it's
-idempotent. Note the stack-wide malware backstop lives on hermes
+idempotent.
+
+It also restricts every Sonarr/Radarr **quality profile to web releases at
+1080p or below**: all `Bluray-*` and `Remux-*` qualities and anything above
+1080p (2160p/4K) are disallowed, leaving WEBDL/WEBRip and HDTV/SDTV/DVD (≤1080p)
+allowed as smaller fallbacks. This is the standard TRaSH-guide mechanism for
+excluding a source — a quality that isn't allowed is never grabbed — and it
+keeps Blu-ray/Remux (20–60 GB+) off the 1 TB disk. Profiles are edited in place,
+so items already assigned to a profile keep it but stop accepting Blu-ray on
+their next search/upgrade; the cutoff is retargeted to a web quality if needed.
+A profile that would be left with nothing allowed (Radarr's stock **Ultra-HD**,
+which is all 2160p) is skipped rather than broken — don't assign anything to it.
+The change is forward-looking: it does not cancel Blu-rays already in the
+download queue (clear those from Radarr → Activity and re-search).
+
+Note the stack-wide malware backstop lives on hermes
 (`configure-qbittorrent.sh`, excluded executable extensions); the *arr layer
 has no "malware score", so name-based blocking can't catch a well-named fake —
 prefer a moderated private tracker for the real fix.
