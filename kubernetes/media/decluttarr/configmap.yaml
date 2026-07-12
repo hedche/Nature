@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: decluttarr-config
+  namespace: media
+  labels:
+    app.kubernetes.io/name: decluttarr
+    app.kubernetes.io/part-of: media
+data:
+  # decluttarr V2 config. Secrets are pulled from the environment via the !ENV
+  # tag (decluttarr's own YAML loader resolves it at runtime — to Kubernetes
+  # this is just an opaque string inside a block scalar). The env vars are
+  # mapped from the media-secrets Secret in deployment.yaml, so no API key or
+  # password is ever committed to this (public) repo.
+  config.yaml: |
+    general:
+      log_level: INFO
+      # Dry-run: logs what it WOULD remove without touching anything. Flip to
+      # false once the logs confirm it targets the right (dead) torrents.
+      test_run: true
+      timer: 10   # minutes between queue sweeps
+
+    job_defaults:
+      # A torrent must fail the same check on 3 consecutive sweeps (~30 min)
+      # before decluttarr acts, so a transient dip never nukes a live download.
+      max_strikes: 3
+      min_days_between_searches: 7
+      max_concurrent_searches: 3
+
+    jobs:
+      # Dead grabs — no peers, stuck fetching metadata, or failed. Each is
+      # removed from qBittorrent, blocklisted in the *arr, and a replacement is
+      # searched. (remove_orphans / remove_bad_files are intentionally left off:
+      # they need the media filesystem mounted, which this pod does not have.)
+      remove_stalled:
+      remove_metadata_missing:
+      remove_failed_downloads:
+      remove_failed_imports:
+      remove_slow:
+        min_speed: 100   # KB/s — below this for max_strikes sweeps = removed
+
+    instances:
+      sonarr:
+        - base_url: http://sonarr:8989
+          api_key: !ENV SONARR_API_KEY
+      radarr:
+        - base_url: http://radarr:7878
+          api_key: !ENV RADARR_API_KEY
+
+    download_clients:
+      qbittorrent:
+        # qBittorrent runs on hermes (behind gluetun), reached over the LAN.
+        # name must match the client name Sonarr/Radarr register — "qBittorrent"
+        # (kubernetes/media/configure-media.sh).
+        - base_url: http://10.30.1.57:8080
+          name: qBittorrent
+          username: !ENV QBIT_USERNAME
+          password: !ENV QBIT_PASSWORD

@@ -7,6 +7,7 @@ resources:
   - radarr
   - prowlarr
   - flaresolverr
+  - decluttarr
   - image-automation.yaml
 images:
   - name: lscr.io/linuxserver/sonarr
@@ -17,3 +18,5 @@ images:
     newTag: 2.4.0.5397-ls153 # {"$imagepolicy": "flux-system:prowlarr:tag"}
   - name: ghcr.io/flaresolverr/flaresolverr
     newTag: v3.5.0 # {"$imagepolicy": "flux-system:flaresolverr:tag"}
+  - name: ghcr.io/manimatter/decluttarr
+    newTag: v2.1.0 # {"$imagepolicy": "flux-system:decluttarr:tag"}

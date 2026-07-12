@@ -113,6 +113,34 @@ spec:
       range: '>=3.0.0'
 ---
 apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: decluttarr
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: media
+spec:
+  image: ghcr.io/manimatter/decluttarr
+  interval: 30m
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: decluttarr
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: media
+spec:
+  imageRepositoryRef:
+    name: decluttarr
+  filterTags:
+    # Plain vX.Y.Z release tags, ordered by semver (excludes latest/dev).
+    pattern: '^v\d+\.\d+\.\d+$'
+  policy:
+    semver:
+      range: '>=2.0.0'
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageUpdateAutomation
 metadata:
   name: media

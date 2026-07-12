@@ -77,6 +77,20 @@ prefs = {
     # Bind libtorrent to the VPN tunnel; empty address = all addresses on it.
     "current_network_interface": vpn_iface,
     "current_interface_address": "",
+    # Queueing: cap real parallelism at 5, but never let a stuck/slow torrent
+    # occupy a download slot. Dead metaDL grabs (0 connectable seeds) were
+    # counting toward the limit and starving healthy torrents in the queue for
+    # ~20h. dont_count_slow_torrents drops anything under the rate threshold out
+    # of the active count so a real torrent starts in its place; decluttarr then
+    # removes + researches the dead ones (kubernetes/media/decluttarr).
+    "queueing_enabled": True,
+    "max_active_downloads": 5,
+    "max_active_torrents": 8,          # 5 downloading + a few seeders active at once
+    "max_active_uploads": 3,
+    "dont_count_slow_torrents": True,
+    "slow_torrent_dl_rate_threshold": 10,   # KiB/s — below this a torrent is "slow"
+    "slow_torrent_ul_rate_threshold": 10,   # KiB/s
+    "slow_torrent_inactive_timer": 120,     # seconds under threshold before deemed slow
 }
 data = urllib.parse.urlencode({"json": json.dumps(prefs)}).encode()
 op.open(QB + "/api/v2/app/setPreferences", data, timeout=30).read()
@@ -85,10 +99,13 @@ op.open(QB + "/api/v2/app/setPreferences", data, timeout=30).read()
 now = json.load(op.open(QB + "/api/v2/app/preferences", timeout=30))
 assert now["excluded_file_names_enabled"] is True
 assert now["use_category_paths_in_manual_mode"] is True
+assert now["dont_count_slow_torrents"] is True, "dont_count_slow_torrents not applied"
+assert now["max_active_downloads"] == 5, "max_active_downloads not applied"
 if now.get("current_network_interface") != vpn_iface:
     raise SystemExit(f"qbittorrent: interface bind failed — want {vpn_iface!r}, "
                      f"got {now.get('current_network_interface')!r} (is gluetun's iface named that?)")
 n = len([p for p in now["excluded_file_names"].splitlines() if p.strip()])
 print(f"qbittorrent: malware guard ON ({n} blocked extensions); category paths ON; "
-      f"bound to {vpn_iface}")
+      f"bound to {vpn_iface}; queue={now['max_active_downloads']} DL / "
+      f"{now['max_active_torrents']} active, slow torrents don't count")
 PYEOF
