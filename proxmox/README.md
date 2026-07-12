@@ -21,6 +21,11 @@ provider. This directory is the source of truth for what runs on that node.
 > Capacity is modest (4 threads / 15 GB / ~56 GB `local-lvm`). Realistically this is
 > 1–3 small VMs. Keep `vm_defaults` lean and avoid heavy core overcommit.
 
+Host-level OS config (as opposed to VM provisioning) lives in
+[`pve-host/`](pve-host/README.md) — currently the hermes USB-disk `io-error`
+watchdog and the RCA for that recurring dropout. Apply with
+`./proxmox/pve-host/install.sh`.
+
 ## One-time Proxmox setup
 
 Create a dedicated, least-privilege API token for Terraform. Run on the node as root:

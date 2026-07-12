@@ -1,0 +1,8 @@
+[Unit]
+Description=Recover hermes VM (157) from QEMU io-error after a USB-disk dropout
+Documentation=https://github.com/  # see proxmox/pve-host/README.md
+After=pve-guests.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/hermes-io-error-watchdog.sh
