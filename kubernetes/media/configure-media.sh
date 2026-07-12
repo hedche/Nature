@@ -297,7 +297,9 @@ def _blocked_quality(q):
     Radarr (Bluray-1080p, Remux-1080p, WEBDL-2160p) and Sonarr
     (Bluray-1080p Remux, WEBDL-2160p)."""
     name = q.get("name", "")
-    if "Bluray" in name or "Remux" in name:
+    # BR-DISK is a full untouched Blu-ray disc image (largest format of all);
+    # its name doesn't contain "Bluray", so match it explicitly.
+    if "Bluray" in name or "Remux" in name or name == "BR-DISK":
         return True
     return (q.get("resolution") or 0) > 1080
 
@@ -323,18 +325,13 @@ def ensure_web_only_profiles(app):
     for prof in profiles:
         items = prof.get("items", [])
         changed = False
-        allowed_ids = []  # (priority order, top of list = most preferred)
-        webdl_1080_id = None
+        any_allowed = False
         for leaf in _walk_items(items):
-            q = leaf["quality"]
-            want = not _blocked_quality(q)
+            want = not _blocked_quality(leaf["quality"])
             if leaf.get("allowed") is not want:
                 leaf["allowed"] = want
                 changed = True
-            if want:
-                allowed_ids.append(q["id"])
-                if q.get("name") == "WEBDL-1080p":
-                    webdl_1080_id = q["id"]
+            any_allowed = any_allowed or want
         # Recompute each group's own 'allowed' from its (possibly changed) children.
         for it in items:
             subs = it.get("items", []) or []
@@ -344,13 +341,28 @@ def ensure_web_only_profiles(app):
                     it["allowed"] = grp_want
                     changed = True
 
-        if not allowed_ids:
+        if not any_allowed:
             print(f"{app}: profile '{prof['name']}' has no web/<=1080p quality — skipped")
             continue
 
-        # Cutoff must reference an allowed quality; retarget if it doesn't.
-        best = webdl_1080_id or allowed_ids[0]
-        if prof.get("cutoff") not in allowed_ids:
+        # Cutoff must reference an allowed *top-level* item — a standalone
+        # allowed quality, or a group (its id, not the quality nested inside).
+        # Radarr groups its WEB qualities, so pointing cutoff at a leaf id is
+        # rejected. Build the valid ids and retarget only if the current cutoff
+        # is no longer valid, preferring the item that carries WEBDL-1080p.
+        def cutoff_id(it):
+            return it["quality"]["id"] if it.get("quality") is not None else it["id"]
+
+        def has_webdl_1080(it):
+            if it.get("quality") is not None:
+                return it["quality"].get("name") == "WEBDL-1080p"
+            return any(s.get("allowed") and s["quality"].get("name") == "WEBDL-1080p"
+                       for s in it.get("items", []) if s.get("quality"))
+
+        valid = [cutoff_id(it) for it in items if it.get("allowed")]
+        best = next((cutoff_id(it) for it in items if it.get("allowed") and has_webdl_1080(it)),
+                    valid[0])
+        if prof.get("cutoff") not in valid:
             prof["cutoff"] = best
             changed = True
 
