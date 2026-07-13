@@ -18,6 +18,13 @@
 #      even though the network is fine) until manually restarted. Binding to
 #      tun0 makes libtorrent wait for / re-bind to the VPN interface across that
 #      race, and tightens leak posture. Override the name with VPN_IFACE=.
+#   4. Token seeding policy — cap upload at ~1 MB/s and give torrents a bounded
+#      seed goal (ratio 2.0 or 14 days) then PAUSE. This is "good citizen"
+#      seeding only: trackers are public (no ratio economy) and NordVPN can't
+#      port-forward (unconnectable, so upload stays low), so there is no ratio/
+#      access payoff — it just seeds a little where possible without choking
+#      downloads/Plex. Pausing (not deleting) lets the *arr removeCompletedDownloads
+#      clean up; the hardlinked /data/media copy survives.
 #
 # Credentials come from the root secrets.yaml (qbittorrent: stanza). Safe to
 # re-run; setPreferences is idempotent.
@@ -91,6 +98,17 @@ prefs = {
     "slow_torrent_dl_rate_threshold": 10,   # KiB/s — below this a torrent is "slow"
     "slow_torrent_ul_rate_threshold": 10,   # KiB/s
     "slow_torrent_inactive_timer": 120,     # seconds under threshold before deemed slow
+    # Token seeding policy ("good citizen", no ratio payoff — trackers are public
+    # and NordVPN can't port-forward so we're unconnectable, upload stays low).
+    # Cap upload so seeding never chokes downloads/Plex; give torrents a bounded
+    # seed goal then PAUSE (not delete). Radarr/Sonarr removeCompletedDownloads
+    # then clears the paused torrent; the hardlinked /data/media copy survives.
+    "up_limit": 1048576,               # global upload cap, bytes/s (~1 MB/s)
+    "max_ratio_enabled": True,
+    "max_ratio": 2.0,                  # seed to 2x (rarely hit while unconnectable)
+    "max_seeding_time_enabled": True,
+    "max_seeding_time": 20160,         # minutes = 14 days; the real backstop
+    "max_ratio_act": 0,                # 0 = pause on limit, 1 = remove. Pause.
 }
 data = urllib.parse.urlencode({"json": json.dumps(prefs)}).encode()
 op.open(QB + "/api/v2/app/setPreferences", data, timeout=30).read()
@@ -101,11 +119,18 @@ assert now["excluded_file_names_enabled"] is True
 assert now["use_category_paths_in_manual_mode"] is True
 assert now["dont_count_slow_torrents"] is True, "dont_count_slow_torrents not applied"
 assert now["max_active_downloads"] == 5, "max_active_downloads not applied"
+assert now["up_limit"] == 1048576, f"up_limit not applied (got {now.get('up_limit')})"
+assert now["max_ratio_enabled"] is True, "max_ratio_enabled not applied"
+assert now["max_seeding_time_enabled"] is True, "max_seeding_time_enabled not applied"
+assert now["max_ratio_act"] == 0, f"max_ratio_act should be pause=0 (got {now.get('max_ratio_act')})"
 if now.get("current_network_interface") != vpn_iface:
     raise SystemExit(f"qbittorrent: interface bind failed — want {vpn_iface!r}, "
                      f"got {now.get('current_network_interface')!r} (is gluetun's iface named that?)")
 n = len([p for p in now["excluded_file_names"].splitlines() if p.strip()])
+up_mibs = now["up_limit"] / 1048576
 print(f"qbittorrent: malware guard ON ({n} blocked extensions); category paths ON; "
       f"bound to {vpn_iface}; queue={now['max_active_downloads']} DL / "
-      f"{now['max_active_torrents']} active, slow torrents don't count")
+      f"{now['max_active_torrents']} active, slow torrents don't count; "
+      f"seed policy: up<={up_mibs:.0f} MiB/s, ratio {now['max_ratio']} / "
+      f"{now['max_seeding_time'] // 1440}d then pause")
 PYEOF
