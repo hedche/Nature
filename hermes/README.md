@@ -1,11 +1,21 @@
-# hermes — VPN-Protected Torrent Stack + Plex
+# hermes — VPN-Protected Torrent Stack + Plex + YouTube Downloads
 
 Docker Compose stack on the `hermes` VM (`10.30.1.57`, provisioned by
 [`../proxmox/`](../proxmox/README.md)): [Gluetun](https://github.com/qdm12/gluetun)
 as a NordVPN WireGuard gateway with [qBittorrent](https://github.com/linuxserver/docker-qbittorrent)
 running entirely inside its network namespace, plus
-[Plex](https://github.com/linuxserver/docker-plex) for playback. Desired state
+[Plex](https://github.com/linuxserver/docker-plex) for playback and
+[MeTube](https://github.com/alexta69/metube) + [File Browser](https://github.com/filebrowser/filebrowser)
+for YouTube downloads (host-networked, outside the VPN). Desired state
 lives in this repo; hermes is only the Docker host (same philosophy as `../pxe/`).
+
+| Port  | Service                       | LAN plumbing |
+|-------|-------------------------------|--------------|
+| 8080  | qBittorrent WebUI (in gluetun)| `127.0.0.1` publish + socket proxy |
+| 8081  | MeTube (yt-dlp web UI)        | `network_mode: host` |
+| 8082  | File Browser (youtube dir)    | `network_mode: host` |
+| 8888  | gluetun HTTP proxy (Prowlarr) | `127.0.0.1` publish + socket proxy |
+| 32400 | Plex                          | `network_mode: host` |
 
 ```
 Nature LAN 10.30.1.0/24                hermes VM (10.30.1.57)
@@ -54,9 +64,10 @@ The script is idempotent. On each run it:
    missing (skip with `--skip-bootstrap`).
 2. Aborts unless `/mnt/data` is a real mountpoint (the USB disk is `nofail` —
    this prevents downloads landing on the OS disk if it's absent).
-3. Creates `/mnt/data/torrents/{tv,movies,incomplete}` and
-   `/home/ubuntu/appdata/{gluetun,qbittorrent}` (app configs live on the OS
-   disk deliberately, so qBittorrent state survives the data disk being away).
+3. Creates `/mnt/data/{torrents/{tv,movies,incomplete},media/{tv,movies},youtube}`
+   and `/home/ubuntu/appdata/{gluetun,qbittorrent,plex,metube,filebrowser}`
+   (app configs live on the OS disk deliberately, so container state survives
+   the data disk being away).
 4. Rsyncs this directory to `/home/ubuntu/nature-hermes`.
 5. Writes the NordVPN key from `secrets.yaml` to a `chmod 600` `.env` on
    hermes (the secret never lands in git or in this directory).
@@ -127,6 +138,42 @@ it skips with a warning if the permanent password has not been recorded yet.
   lives in `/home/ubuntu/appdata/plex` on the 40 GB OS disk — keep an eye on
   it as the library grows.
 
+## MeTube + File Browser (`:8081` / `:8082`)
+
+YouTube download workflow, phone-friendly over Tailscale (the cereal subnet
+router advertises `10.30.1.0/24`, so any tailnet device reaches these
+directly — no per-service Tailscale config):
+
+- **MeTube — `http://10.30.1.57:8081`**: paste a video or playlist URL, pick
+  quality/format in the UI, downloads run in the background via yt-dlp.
+  Files land in `/mnt/data/youtube`; playlists get their own subfolder with
+  index-prefixed filenames (`<Playlist Title>/001 - <title>.mp4`) so they
+  list in order. Queue/history state lives in `/home/ubuntu/appdata/metube`
+  (OS disk). Clearing a finished item from the queue does **not** delete the
+  file. Capped at 2 concurrent downloads (2 vCPU shared with Plex).
+- **File Browser — `http://10.30.1.57:8082`**: browse/download/delete
+  anything under `/mnt/data/youtube` from a phone browser, even after it
+  left the MeTube queue. Deletion here *is* the retention policy — nothing
+  auto-prunes the youtube dir.
+- **No VPN on purpose**: YouTube throttles/blocks shared VPN IPs; home-IP
+  egress is the reliable path, and per the VPN-boundary rule only torrent
+  traffic tunnels. Both use `network_mode: host` (the Plex pattern), which
+  sidesteps the Tailscale × Docker DNAT breakage — no socket-proxy units.
+- **No auth on File Browser, deliberately** (`FB_NOAUTH`): reachable from
+  home LAN + tailnet only, content is non-sensitive, and its write scope is
+  confined to the `/mnt/data/youtube` bind mount. This keeps deploys fully
+  reproducible with zero secret plumbing (this repo is public). The auth
+  choice is baked into the BoltDB at first init — to add auth later, wipe
+  `/home/ubuntu/appdata/filebrowser` and redeploy with `FB_USERNAME` +
+  `FB_PASSWORD` sourced from `secrets.yaml` via the deploy script's `.env`.
+- **When YouTube downloads break** (HTTP 403, "nsig extraction failed",
+  "Sign in to confirm you're not a bot"): this is the yt-dlp arms race, not
+  a config problem. Bump the pinned `metube` image tag in
+  `docker-compose.yml` (releases track yt-dlp near-weekly) and redeploy.
+  If churn gets annoying, `YTDL_NIGHTLY_UPDATE_TIME` makes the container
+  self-update yt-dlp nightly (mutates the running container; a restart
+  reverts to the baked version).
+
 ## NFS export for the cereal media namespace
 
 The Sonarr/Radarr pods on cereal (`../kubernetes/media/`) must see the same
@@ -140,7 +187,9 @@ exports the whole data disk (`nfs/nature-media.exports` →
 ```
 
 - **One export of the whole disk** so `/data/torrents` → `/data/media`
-  hardlinks/renames never cross a mount boundary on the client.
+  hardlinks/renames never cross a mount boundary on the client. This means
+  `/mnt/data/youtube` rides along in the export too — harmless, and the
+  single-export rule is deliberate.
 - **`all_squash,anonuid/gid=1000`**: every client identity maps to
   `ubuntu:ubuntu`, matching qBittorrent's `PUID/PGID` — ownership is
   deterministic no matter what uid the pods present.

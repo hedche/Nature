@@ -122,3 +122,78 @@ services:
             timeout: 15s
             retries: 3
             start_period: 120s
+
+    metube:
+        image: ghcr.io/alexta69/metube:2026.07.13
+        container_name: metube
+        restart: unless-stopped
+        # Host networking on purpose: host-sourced replies dodge the Tailscale
+        # accept-routes x Docker DNAT breakage (see README), same as Plex.
+        # Deliberately NOT behind gluetun: YouTube throttles/blocks shared VPN
+        # IPs; home-IP egress is the reliable path. Only torrents tunnel.
+        network_mode: host
+        environment:
+            PUID: "1000"
+            PGID: "1000"
+            TZ: Europe/London
+            # App default, pinned explicitly: 8080/8888/32400 are taken on this host.
+            PORT: "8081"
+            DOWNLOAD_DIR: /downloads
+            # Queue/history state on the OS disk with the other app configs, so
+            # it survives the USB data disk being absent. TEMP_DIR stays at its
+            # default (= DOWNLOAD_DIR): partials stay on the 1TB disk and the
+            # final move is a same-filesystem rename.
+            STATE_DIR: /config
+            # Playlists land in a per-playlist subfolder, index-prefixed so
+            # File Browser lists items in order on the phone.
+            OUTPUT_TEMPLATE_PLAYLIST: "%(playlist_title)s/%(playlist_index)03d - %(title)s.%(ext)s"
+            # 2 vCPU shared with Plex; ffmpeg merge steps are CPU-heavy.
+            MAX_CONCURRENT_DOWNLOADS: "2"
+        volumes:
+            # OS disk on purpose (see gluetun volume comment).
+            - /home/ubuntu/appdata/metube:/config
+            # Long syntax: refuse to start if /mnt/data (USB, nofail) is absent.
+            - type: bind
+              source: /mnt/data/youtube
+              target: /downloads
+              bind:
+                  create_host_path: false
+        # No compose healthcheck: the image bakes one in (curl on :$PORT).
+
+    filebrowser:
+        image: hurlenko/filebrowser:v2.63.18
+        container_name: filebrowser
+        restart: unless-stopped
+        # Same host-networking rationale as metube/plex (Tailscale x DNAT).
+        network_mode: host
+        # This image has no PUID/PGID entrypoint; `user:` runs the bare
+        # /filebrowser binary as ubuntu (1000:1000) — never root at all.
+        user: "1000:1000"
+        environment:
+            TZ: Europe/London
+            # Default 8080 collides with the qBittorrent WebUI socket proxy.
+            # NB: FB_* env only works for flags NOT already in the image CMD
+            # (flags beat env) — root/database/address must stay CMD defaults.
+            FB_PORT: "8082"
+            # LAN + tailnet only, non-sensitive content, write scope confined
+            # to the youtube mount — no auth keeps this reproducible with zero
+            # secret plumbing (repo is public). Auth choice is baked into the
+            # DB at first init: to add auth later, wipe appdata/filebrowser and
+            # redeploy with FB_USERNAME + FB_PASSWORD from secrets.yaml.
+            FB_NOAUTH: "true"
+        volumes:
+            # OS disk on purpose. filebrowser.db auto-created here on first run.
+            - /home/ubuntu/appdata/filebrowser:/config
+            # Browse ONLY the MeTube downloads — not the torrent/media trees.
+            - type: bind
+              source: /mnt/data/youtube
+              target: /data
+              bind:
+                  create_host_path: false
+        healthcheck:
+            # busybox wget (alpine base; no curl in this image).
+            test: ["CMD-SHELL", "wget -q -T 10 -O /dev/null http://127.0.0.1:8082/health"]
+            interval: 60s
+            timeout: 15s
+            retries: 3
+            start_period: 30s

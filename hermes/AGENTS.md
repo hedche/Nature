@@ -1,7 +1,8 @@
 # hermes media stack — agent conventions
 
 - **This directory is the source of truth** for the Docker media stack on the hermes VM
-  (`ubuntu@10.30.1.57`): Gluetun (NordVPN WireGuard) + qBittorrent + Plex. Deploy with
+  (`ubuntu@10.30.1.57`): Gluetun (NordVPN WireGuard) + qBittorrent + Plex + MeTube +
+  File Browser. Deploy with
   `./deploy-to-hermes.sh` (idempotent: bootstraps Docker, rsyncs, generates the remote
   `.env` from the root `secrets.yaml`, `compose up`). Never `docker compose` by hand on
   the guest except for debugging; change the repo and redeploy.
@@ -23,6 +24,13 @@
   (qBittorrent WebUI :8080) or `network_mode: host` (Plex :32400). Test a plain nginx
   publish before debugging app config for this symptom. Never enable a Tailscale exit
   node on hermes — it would capture gluetun's tunnel. Details: `README.md` here.
+- **MeTube (:8081) + File Browser (:8082)** are the YouTube download pair: both
+  `network_mode: host` (Tailscale gotcha above), both deliberately OUTSIDE the VPN
+  (YouTube blocks shared VPN IPs; the VPN is torrent-only). Downloads land on
+  `/mnt/data/youtube`; state/DB in appdata. File Browser is noauth on purpose (scoped
+  to the youtube mount, LAN/tailnet only, keeps the public repo secret-free). When
+  YouTube downloads start failing (403 / nsig / bot-check), bump the pinned `metube`
+  image tag first — do not debug app config.
 - **Gluetun restarts break qbittorrent's namespace** (DNS dies, healthcheck flips
   unhealthy in ~3 min); `docker compose up -d` will NOT fix an unchanged container —
   recover with `docker restart qbittorrent`.
