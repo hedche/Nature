@@ -13,7 +13,7 @@ lives in this repo; hermes is only the Docker host (same philosophy as `../pxe/`
 |-------|-------------------------------|--------------|
 | 8080  | qBittorrent WebUI (in gluetun)| `127.0.0.1` publish + socket proxy |
 | 8081  | MeTube (yt-dlp web UI)        | `network_mode: host` |
-| 8082  | File Browser (youtube dir)    | `network_mode: host` |
+| 8082  | File Browser (youtube rw; media/torrents ro) | `network_mode: host` |
 | 8888  | gluetun HTTP proxy (Prowlarr) | `127.0.0.1` publish + socket proxy |
 | 32400 | Plex                          | `network_mode: host` |
 
@@ -151,17 +151,19 @@ directly — no per-service Tailscale config):
   list in order. Queue/history state lives in `/home/ubuntu/appdata/metube`
   (OS disk). Clearing a finished item from the queue does **not** delete the
   file. Capped at 2 concurrent downloads (2 vCPU shared with Plex).
-- **File Browser — `http://10.30.1.57:8082`**: browse/download/delete
-  anything under `/mnt/data/youtube` from a phone browser, even after it
-  left the MeTube queue. Deletion here *is* the retention policy — nothing
-  auto-prunes the youtube dir.
+- **File Browser — `http://10.30.1.57:8082`**: browse and download the
+  whole data disk from a phone browser — `youtube/` (read-write, even after
+  items leave the MeTube queue; deletion here *is* the retention policy,
+  nothing auto-prunes it), plus `media/` and `torrents/` (**read-only**
+  mounts: with no auth, a writable mount would let anyone on the LAN/tailnet
+  delete the Plex library or yank files out from under seeding torrents).
 - **No VPN on purpose**: YouTube throttles/blocks shared VPN IPs; home-IP
   egress is the reliable path, and per the VPN-boundary rule only torrent
   traffic tunnels. Both use `network_mode: host` (the Plex pattern), which
   sidesteps the Tailscale × Docker DNAT breakage — no socket-proxy units.
 - **No auth on File Browser, deliberately** (`FB_NOAUTH`): reachable from
   home LAN + tailnet only, content is non-sensitive, and its write scope is
-  confined to the `/mnt/data/youtube` bind mount. This keeps deploys fully
+  confined to the `/mnt/data/youtube` bind mount (everything else read-only). This keeps deploys fully
   reproducible with zero secret plumbing (this repo is public). The auth
   choice is baked into the BoltDB at first init — to add auth later, wipe
   `/home/ubuntu/appdata/filebrowser` and redeploy with `FB_USERNAME` +

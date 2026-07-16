@@ -27,8 +27,10 @@
 - **MeTube (:8081) + File Browser (:8082)** are the YouTube download pair: both
   `network_mode: host` (Tailscale gotcha above), both deliberately OUTSIDE the VPN
   (YouTube blocks shared VPN IPs; the VPN is torrent-only). Downloads land on
-  `/mnt/data/youtube`; state/DB in appdata. File Browser is noauth on purpose (scoped
-  to the youtube mount, LAN/tailnet only, keeps the public repo secret-free). When
+  `/mnt/data/youtube`; state/DB in appdata. File Browser is noauth on purpose
+  (LAN/tailnet only, keeps the public repo secret-free): youtube is its only writable
+  mount — media/torrents are read-only so nobody can delete the Plex library or break
+  seeding torrents from a browser. When
   YouTube downloads start failing (403 / nsig / bot-check), bump the pinned `metube`
   image tag first — do not debug app config.
 - **Gluetun restarts break qbittorrent's namespace** (DNS dies, healthcheck flips
