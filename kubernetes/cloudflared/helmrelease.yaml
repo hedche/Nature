@@ -20,18 +20,17 @@ spec:
   upgrade:
     remediation:
       retries: 3
+  valuesFrom:
+    - kind: Secret
+      name: cloudflare-api
+      valuesKey: api-token
+      targetPath: cloudflare.apiToken
+    - kind: Secret
+      name: cloudflare-api
+      valuesKey: cloudflare-account-id
+      targetPath: cloudflare.accountId
   values:
     cloudflare:
-      apiToken:
-        valueFrom:
-          secretKeyRef:
-            name: cloudflare-api-token
-            key: token
-      accountId:
-        valueFrom:
-          secretKeyRef:
-            name: cloudflare-account-id
-            key: id
       tunnelName: cereal-cluster
     ingressClass:
       isDefaultClass: false
