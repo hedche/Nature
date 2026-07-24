@@ -21,13 +21,18 @@ spec:
     remediation:
       retries: 3
   valuesFrom:
+    # cloudflare-credentials is created out-of-band (not in git, not Helm-owned):
+    #   kubectl -n cloudflared create secret generic cloudflare-credentials \
+    #     --from-literal=api-token=<token> --from-literal=account-id=<account-id>
+    # The chart renders its own cloudflare-api secret from these values, so
+    # valuesFrom must NOT point at cloudflare-api (circular).
     - kind: Secret
-      name: cloudflare-api
+      name: cloudflare-credentials
       valuesKey: api-token
       targetPath: cloudflare.apiToken
     - kind: Secret
-      name: cloudflare-api
-      valuesKey: cloudflare-account-id
+      name: cloudflare-credentials
+      valuesKey: account-id
       targetPath: cloudflare.accountId
   values:
     cloudflare:
