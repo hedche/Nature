@@ -13,13 +13,16 @@
 #   ./scripts/secrets-crypto.sh -d [-f]       Decrypt secrets.yaml.age -> secrets.yaml
 #
 # Encrypting keeps the plaintext secrets.yaml in place. Both files are
-# gitignored; the .age file exists for local at-rest backup only.
+# gitignored; the .age file exists for local at-rest backup only. After
+# encrypting, the script offers to copy the .age file to the iCloud
+# "Administrator ⚙️" folder as an off-machine backup.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLAIN_FILE="${REPO_ROOT}/secrets.yaml"
 ENC_FILE="${REPO_ROOT}/secrets.yaml.age"
+ICLOUD_BACKUP_DIR="${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Administrator ⚙️"
 
 # --- Colours ---
 RED='\033[0;31m'
@@ -65,6 +68,30 @@ cmd_encrypt() {
     trap - EXIT
 
     info "Wrote $(basename "$ENC_FILE") ($(wc -c < "$ENC_FILE" | tr -d ' ') bytes). Plaintext kept."
+
+    offer_icloud_backup
+}
+
+offer_icloud_backup() {
+    # Only offer interactively; skip in non-TTY contexts (CI, pipes).
+    [[ -t 0 ]] || return 0
+
+    if [[ ! -d "$ICLOUD_BACKUP_DIR" ]]; then
+        warn "iCloud backup dir not found: ${ICLOUD_BACKUP_DIR} — skipping backup offer."
+        return 0
+    fi
+
+    local reply
+    read -r -p "Back up secrets.yaml.age to iCloud (Administrator ⚙️)? [y/N] " reply
+    case "$reply" in
+        [yY]|[yY][eE][sS])
+            cp "$ENC_FILE" "${ICLOUD_BACKUP_DIR}/secrets.yaml.age"
+            info "Backed up to ${ICLOUD_BACKUP_DIR}/secrets.yaml.age"
+            ;;
+        *)
+            info "Skipped iCloud backup."
+            ;;
+    esac
 }
 
 cmd_decrypt() {
