@@ -1,0 +1,14 @@
+[Unit]
+Description=Poll for the flushed LAN-to-LAN policy routing rule and self-heal
+Documentation=https://github.com/  # see hermes/README.md
+
+[Timer]
+# Losing this rule blacks hermes out on the LAN entirely, so poll tighter than the
+# pve io-error watchdog: the check is one `ip rule show`, and 30s bounds an outage
+# to a blip rather than however long it takes someone to notice qBittorrent is gone.
+OnBootSec=60s
+OnUnitActiveSec=30s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

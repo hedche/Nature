@@ -201,6 +201,20 @@ ssh "${HERMES_SSH_HOST}" "
     sudo systemctl restart qbittorrent-proxy.socket gluetun-httpproxy.socket
 "
 
+# --- LAN-to-LAN routing rule watchdog (see systemd/ + README) ---
+# The socket proxies above only help if replies actually leave via eth0. Tailscale
+# can flush the pref-100 exemption rule that guarantees that, with no tailscaled
+# restart to reinstate it; this timer re-asserts it every 30s.
+ssh "${HERMES_SSH_HOST}" "
+    set -eu
+    sudo install -m 755 '${HERMES_DIR}/lan-route-rule-watchdog.sh' /usr/local/bin/lan-route-rule-watchdog.sh
+    sudo install -m 644 '${HERMES_DIR}/systemd/hermes-lan-route-rule.service' /etc/systemd/system/
+    sudo install -m 644 '${HERMES_DIR}/systemd/hermes-lan-route-rule.timer' /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now hermes-lan-route-rule.timer >/dev/null 2>&1
+    sudo systemctl start hermes-lan-route-rule.service
+"
+
 # --- NFS export of /mnt/data for the cereal *arr stack (see README) ---
 # The preflight above already guarantees /mnt/data is mounted; the systemd
 # drop-in keeps nfs-server from ever exporting the empty stub dir on a boot

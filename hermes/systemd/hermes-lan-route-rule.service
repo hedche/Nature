@@ -1,0 +1,8 @@
+[Unit]
+Description=Re-assert the LAN-to-LAN policy routing rule Tailscale flushes
+Documentation=https://github.com/  # see hermes/README.md
+After=tailscaled.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/lan-route-rule-watchdog.sh

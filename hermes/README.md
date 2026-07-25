@@ -43,6 +43,27 @@ Nature LAN 10.30.1.0/24                hermes VM (10.30.1.57)
   Docker's DNAT/FORWARD path into tailscale0 instead of eth0. Host-terminated
   connections re-originate from the host's own IP, which Tailscale's
   LAN-to-LAN exemption rule (pref 100) routes correctly out eth0.
+- **The pref-100 rule is load-bearing and Tailscale can flush it.** Everything
+  above depends on that one rule; without it table 52 wins and hermes is dark on
+  the LAN (ping, SSH, `:8080` all dead) while the VM is perfectly healthy — the
+  guest console still shows a login prompt and `qm status` still says `running`.
+  `tailscaled.service` adds it in `ExecStartPost`, but that fires only at service
+  start, and tailscaled reprograms routing whenever peers churn. On 2026-07-25 it
+  was flushed under a tailscaled that had been up 14 days (`NRestarts=0`), so
+  nothing reinstated it and qBittorrent dropped off the LAN. A 30s timer
+  (`lan-route-rule-watchdog.sh` + `systemd/hermes-lan-route-rule.*`, installed by
+  the deploy script) now re-asserts the rule and logs the repair:
+
+  ```sh
+  systemctl list-timers hermes-lan-route-rule.timer
+  journalctl -t hermes-lan-route-rule        # one line per repair
+  ip rule show | grep '^100:'                # the rule itself
+  ```
+
+  Repeated repair entries mean Tailscale is flushing it often; the root-cause fix
+  is to stop hermes accepting a subnet route for the LAN it is physically on
+  (`tailscale set --accept-routes=false`, which also drops the `10.96.0.0/12` and
+  `10.244.0.0/16` cluster routes — check nothing on hermes needs them first).
 
 ## Prerequisites
 
