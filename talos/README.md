@@ -153,5 +153,22 @@ talosctl gen secrets -o ~/.config/nature/secrets.yaml
 ./talos/bootstrap.sh
 ```
 
-> **Critical**: The old secrets from the original repo are in git history. Rotate them immediately.
-n git history. Rotate them immediately.
+> **History audited 2026-07-25 — no credentials found.** An earlier revision of
+> this file warned that "the old secrets from the original repo are in git
+> history". That is not true of this repository. Its history is continuous back
+> to the initial commit (2021-10-12), and `talos/controlplane.yaml` and
+> `talos/worker.yaml` were first added in `5d8746e` already templated with
+> `${PLACEHOLDER}` variables — the plaintext versions they replaced lived only
+> in the local working tree and were never committed. The live Talos client
+> credential in `talos/talosconfig` does not appear in any commit, reachable or
+> otherwise.
+>
+> Verified four ways: `gitleaks` over all commits, a path audit of every file
+> ever added, a binary-safe entropy sweep of every blob, and GitHub's own secret
+> scanning of the remote. Every hit was a placeholder or a public identifier
+> (Terraform `zh:`/`h1:` lock hashes, a Talos image-factory schematic ID, LVM
+> UUIDs, and Talos' documented `--- EXAMPLE KEY ---` / `z01mye6j…` examples).
+>
+> This cannot speak for any repository that was deleted or force-pushed before
+> the audit. If Talos credentials were ever exposed elsewhere, rotate with the
+> commands above.
