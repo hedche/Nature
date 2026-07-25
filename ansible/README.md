@@ -18,7 +18,7 @@ Configures a Debian/Raspbian host as a CUPS print server with Avahi/mDNS discove
 
 **Usage:**
 
-1. Ensure your `secrets.yaml` (repo root) contains the printer serial:
+1. Ensure your `secrets.yaml` (`~/.config/nature/secrets.yaml`) contains the printer serial:
    ```yaml
    cups:
      printerSerial: "331AEC"

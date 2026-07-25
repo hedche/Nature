@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-SECRETS_FILE="${REPO_ROOT}/secrets.yaml"
+source "${REPO_ROOT}/scripts/secrets-path.sh"
 TEMPLATE_DIR="${SCRIPT_DIR}"
 OUTPUT_DIR="${SCRIPT_DIR}/generated"
 

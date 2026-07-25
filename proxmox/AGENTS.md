@@ -7,7 +7,7 @@
   `terraform apply`. Per-VM fields override `vm_defaults`. Keep specs modest (node is
   4 threads / 15 GB / ~56 GB `local-lvm`); use IPs `10.30.1.56-.59` (the node is `.55`,
   the k8s nodes are `.50-.53`) on the shared `/24`.
-- Auth is a dedicated API token (`terraform@pve`), stored in the root `secrets.yaml`
+- Auth is a dedicated API token (`terraform@pve`), stored in the `secrets.yaml`
   under the `proxmox:` key and loaded into Terraform via `./.envrc`
   (`TF_VAR_proxmox_api_token`). The token is never committed; `README.md` here
   documents the one-time `pveum` token-creation steps.

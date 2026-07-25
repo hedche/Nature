@@ -68,7 +68,7 @@ Nature LAN 10.30.1.0/24                hermes VM (10.30.1.57)
 ## Prerequisites
 
 - hermes VM up (Terraform in `../proxmox/`), 1TB USB HDD mounted at `/mnt/data`.
-- `nordvpn:` stanza in the root `secrets.yaml` (schema:
+- `nordvpn:` stanza in the `secrets.yaml` (schema:
   `../talos/secrets.yaml.template`). Get the WireGuard private key from
   <https://my.nordaccount.com/dashboard/nordvpn/manual-configuration/>.
 - Local tools: `ssh`, `rsync`, `yq` (and optionally `direnv`).

@@ -60,7 +60,7 @@ The full token string is `terraform@pve!terraform=<UUID>`.
 
 ## Secrets
 
-Record the token and your SSH public key in the root `secrets.yaml` (gitignored)
+Record the token and your SSH public key in the `secrets.yaml` (gitignored)
 under a `proxmox:` stanza (schema documented in `talos/secrets.yaml.template`):
 
 ```yaml
@@ -81,7 +81,7 @@ after cloning. To override the key per-checkout, set `ssh_public_key` in
 
 ```bash
 cd proxmox
-direnv allow                          # exports TF_VAR_* from ../secrets.yaml (one-time)
+direnv allow                          # exports TF_VAR_* from ~/.config/nature/secrets.yaml (one-time)
 
 cp terraform.tfvars.example terraform.tfvars
 $EDITOR terraform.tfvars              # set ssh_public_key and the vms map

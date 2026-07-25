@@ -22,7 +22,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SECRETS_FILE="${REPO_ROOT}/secrets.yaml"
+source "${REPO_ROOT}/scripts/secrets-path.sh"
 
 # --- Colours ---
 RED='\033[0;31m'

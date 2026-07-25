@@ -4,7 +4,7 @@
   (`ubuntu@10.30.1.57`): Gluetun (NordVPN WireGuard) + qBittorrent + Plex + MeTube +
   File Browser. Deploy with
   `./deploy-to-hermes.sh` (idempotent: bootstraps Docker, rsyncs, generates the remote
-  `.env` from the root `secrets.yaml`, `compose up`). Never `docker compose` by hand on
+  `.env` from the `secrets.yaml`, `compose up`). Never `docker compose` by hand on
   the guest except for debugging; change the repo and redeploy.
 - **VPN boundary**: only qBittorrent runs inside gluetun's network namespace
   (`network_mode: service:gluetun` = kill switch). Plex and anything else must NOT be

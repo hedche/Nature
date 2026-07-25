@@ -1,0 +1,50 @@
+# gitleaks config for the Nature repo.
+#
+# Used by the .githooks/pre-commit hook and by any manual scan. Start from
+# gitleaks' built-in ruleset and add allowlists for the placeholder values
+# this repo legitimately commits.
+#
+# Keeping this allowlist tight matters: a hook that cries wolf on every
+# commit touching talos/*.yaml is a hook that gets bypassed with
+# --no-verify, which is worse than no hook at all.
+
+[extend]
+useDefault = true
+
+[[rules]]
+# Deny-by-name backstop. The real secrets.yaml lives outside the repo
+# (see scripts/secrets-path.sh); this catches an attempt to reintroduce it,
+# including via `git add -f`, which .gitignore alone would not stop.
+id = "nature-secrets-file"
+description = "Nature secrets file must never be committed — it lives in ~/.config/nature/"
+path = '''(^|/)secrets\.(yaml|yml|env)(\.age)?$'''
+regex = '''(?s).*'''
+
+[rules.allowlist]
+# The schema template carries only ${PLACEHOLDER} values, never real ones.
+paths = ['''(^|/)secrets\.yaml\.template$''']
+
+[allowlist]
+description = "Placeholders and upstream documentation examples"
+
+regexes = [
+  # base64 of "--- EXAMPLE KEY ---", used throughout the Talos templates.
+  '''LS0tIEVYQU1QTEUgS0VZIC0tLQ==''',
+  # Verbatim example value from the Talos configuration reference, present
+  # (commented out) in talos/worker.yaml and talos/controlplane.yaml.
+  '''z01mye6j16bspJYtTB/5SFX8j7Ph4JXxM2Xuu4vsBPM=''',
+  # Tailscale placeholders in docs/tailscale-cluster-access.md.
+  '''tskey-client-k123456CNTRL-abcdef''',
+  '''tskey-auth-your-authkey-here''',
+  '''k123456CNTRL''',
+  # Template variables — every tracked config uses these instead of values.
+  '''\$\{[A-Z0-9_]+\}''',
+]
+
+paths = [
+  # Generated artefacts are gitignored, but if one is ever force-added the
+  # deny-by-name rule above and .gitignore are the controls — not a scan of
+  # 156K of PKI on every commit.
+  '''(^|/)talos/generated/''',
+  '''(^|/)pxe/generated/''',
+]

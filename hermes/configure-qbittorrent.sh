@@ -33,7 +33,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-SECRETS_FILE="${REPO_ROOT}/secrets.yaml"
+source "${REPO_ROOT}/scripts/secrets-path.sh"
 QB_URL="${QB_URL:-http://10.30.1.57:8080}"
 VPN_IFACE="${VPN_IFACE:-tun0}"   # gluetun's tunnel interface inside the shared netns
 

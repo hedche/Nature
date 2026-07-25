@@ -17,6 +17,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+source "${REPO_ROOT}/scripts/secrets-path.sh"
 KUBECONFIG="${SCRIPT_DIR}/kubeconfig.yaml"
 export KUBECONFIG
 
@@ -44,9 +45,9 @@ check_prereqs() {
         die "Missing required tools: ${missing[*]}"
     fi
 
-    [[ -f "${REPO_ROOT}/secrets.yaml" ]] || \
-        die "secrets.yaml not found at ${REPO_ROOT}/secrets.yaml\n" \
-            "    Copy talos/secrets.yaml.template to secrets.yaml and populate it."
+    [[ -f "$SECRETS_FILE" ]] || \
+        die "secrets.yaml not found at ${SECRETS_FILE}\n" \
+            "    Copy talos/secrets.yaml.template there and populate it."
 
     [[ -f "$KUBECONFIG" ]] || \
         die "kubeconfig not found at ${KUBECONFIG}\n" \

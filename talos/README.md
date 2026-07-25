@@ -37,13 +37,13 @@ talos/
 - `talosctl` — Talos CLI ([install guide](https://www.talos.dev/v1.9/introduction/getting-started/))
 - `yq` — YAML processor (Go version, `brew install yq` or `go install github.com/mikefarah/yq/v4@latest`)
 - `kubectl` — Kubernetes CLI
-- `secrets.yaml` — Your populated secrets file at repo root (see below)
+- `secrets.yaml` — Your populated secrets file at `~/.config/nature/secrets.yaml` (see below)
 
 ## Quick Start — Full Cluster Bootstrap
 
 ```bash
 # 1. Set up secrets (first time only — see "Setting Up Secrets" below)
-cp talos/secrets.yaml.template secrets.yaml
+cp talos/secrets.yaml.template ~/.config/nature/secrets.yaml
 
 # 2. Bootstrap the entire cluster
 ./talos/bootstrap.sh
@@ -66,7 +66,7 @@ Generate fresh Talos secrets and extract them into the template format:
 talosctl gen secrets -o /tmp/talos-secrets.yaml
 talosctl gen config cereal https://cereal.nature.leafbit.uk:6443 \
     --with-secrets /tmp/talos-secrets.yaml --output-dir /tmp/talos-gen
-cp talos/secrets.yaml.template secrets.yaml
+cp talos/secrets.yaml.template ~/.config/nature/secrets.yaml
 ```
 
 Extract each value with `yq`:
@@ -95,11 +95,12 @@ rm -rf /tmp/talos-secrets.yaml /tmp/talos-gen
 
 ## Backing Up & Restoring Secrets
 
-Secrets live in a single `secrets.yaml` at the repo root. Back this file up using
-your preferred secure mechanism (e.g., encrypted password-manager export, or
-any external secret storage you already trust). To reproduce the cluster from
-scratch, place `secrets.yaml` in the repo root and run `./talos/generate-configs.sh`
-followed by `./talos/bootstrap.sh`.
+Secrets live in a single `secrets.yaml` at `~/.config/nature/secrets.yaml` —
+deliberately outside the repo, which is public, so the file cannot be committed
+by accident. Back it up with `./scripts/secrets-crypto.sh -e` (age passphrase
+encryption, with an offer to move the `.age` file to iCloud). To reproduce the
+cluster from scratch, place `secrets.yaml` at `~/.config/nature/` and run
+`./talos/generate-configs.sh` followed by `./talos/bootstrap.sh`.
 
 ## Per-Node Patches
 
@@ -147,7 +148,7 @@ The default PXE menu does not expose generated Talos machine configs. If you int
 ## Rotating Secrets
 
 ```bash
-talosctl gen secrets -o secrets.yaml
+talosctl gen secrets -o ~/.config/nature/secrets.yaml
 ./talos/generate-configs.sh
 ./talos/bootstrap.sh
 ```

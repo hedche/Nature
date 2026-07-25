@@ -20,6 +20,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+source "${REPO_ROOT}/scripts/secrets-path.sh"
 GENERATED="${SCRIPT_DIR}/generated"
 TALOSCONFIG="${SCRIPT_DIR}/talosconfig"
 
@@ -60,9 +61,9 @@ check_prereqs() {
         die "Missing required tools: ${missing[*]}"
     fi
 
-    if [[ ! -f "${REPO_ROOT}/secrets.yaml" ]]; then
-        die "secrets.yaml not found at ${REPO_ROOT}/secrets.yaml\n" \
-            "    Copy talos/secrets.yaml.template to secrets.yaml and populate it.\n" \
+    if [[ ! -f "$SECRETS_FILE" ]]; then
+        die "secrets.yaml not found at ${SECRETS_FILE}\n" \
+            "    Copy talos/secrets.yaml.template there and populate it.\n" \
             "    See talos/README.md for instructions."
     fi
 }
@@ -307,7 +308,7 @@ bootstrap_flux() {
 
     # Read the GitHub PAT from the secrets pipeline
     local token
-    token="$(yq eval '.kubernetes.secrets[] | select(.name == "flux-system") | .data.password' "${REPO_ROOT}/secrets.yaml")"
+    token="$(yq eval '.kubernetes.secrets[] | select(.name == "flux-system") | .data.password' "$SECRETS_FILE")"
     if [[ -z "$token" || "$token" == "null" ]]; then
         die "Flux secret not found in secrets.yaml.\n" \
             "    Create it with:\n" \
@@ -331,7 +332,7 @@ bootstrap_flux() {
 # --- Push Kubernetes secrets ---
 push_secrets() {
     local count
-    count="$(yq eval '.kubernetes.secrets | length // 0' "${REPO_ROOT}/secrets.yaml")"
+    count="$(yq eval '.kubernetes.secrets | length // 0' "$SECRETS_FILE")"
     if [[ "$count" -eq 0 ]]; then
         info "No Kubernetes secrets defined in secrets.yaml — skipping."
         return

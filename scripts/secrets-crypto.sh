@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Encrypt/decrypt the root secrets.yaml with a passphrase using age.
+# Encrypt/decrypt secrets.yaml with a passphrase using age.
+#
+# secrets.yaml lives outside the repo (see scripts/secrets-path.sh) — this
+# script never reads or writes anything under the repo root, including
+# temp files.
 #
 # age -p derives a 256-bit key from the passphrase with scrypt and encrypts
 # with ChaCha20-Poly1305 — post-quantum safe for symmetric, password-based
@@ -12,17 +16,20 @@
 #   ./scripts/secrets-crypto.sh -e            Encrypt secrets.yaml -> secrets.yaml.age
 #   ./scripts/secrets-crypto.sh -d [-f]       Decrypt secrets.yaml.age -> secrets.yaml
 #
-# Encrypting keeps the plaintext secrets.yaml in place. Both files are
-# gitignored; the .age file exists for local at-rest backup only. After
-# encrypting, the script offers to copy the .age file to the iCloud
-# "Administrator ⚙️" folder as an off-machine backup.
+# Encrypting keeps the plaintext secrets.yaml in place. After encrypting,
+# the script offers to move the .age file to the iCloud "Administrator ⚙️"
+# folder as the off-machine backup — on success the local copy is deleted,
+# so there is exactly one copy of the ciphertext. Decrypt reads the iCloud
+# copy when there is no local one.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PLAIN_FILE="${REPO_ROOT}/secrets.yaml"
-ENC_FILE="${REPO_ROOT}/secrets.yaml.age"
+source "${REPO_ROOT}/scripts/secrets-path.sh"
+PLAIN_FILE="$SECRETS_FILE"
+ENC_FILE="${PLAIN_FILE}.age"
 ICLOUD_BACKUP_DIR="${HOME}/Library/Mobile Documents/com~apple~CloudDocs/Administrator ⚙️"
+ICLOUD_ENC_FILE="${ICLOUD_BACKUP_DIR}/secrets.yaml.age"
 
 # --- Colours ---
 RED='\033[0;31m'
@@ -46,7 +53,8 @@ usage() {
     echo "  -d          Decrypt secrets.yaml.age -> secrets.yaml"
     echo "  -f, --force With -d: overwrite an existing secrets.yaml"
     echo ""
-    echo "Encryption keeps the plaintext file; both files stay local (gitignored)."
+    echo "Encryption keeps the plaintext file and offers to move the .age file"
+    echo "off the repo root into iCloud. Decrypt falls back to the iCloud copy."
     exit 1
 }
 
@@ -55,7 +63,7 @@ cmd_encrypt() {
     [[ -f "$PLAIN_FILE" ]] || die "secrets.yaml not found at ${PLAIN_FILE}"
 
     local tmp
-    tmp="$(mktemp "${REPO_ROOT}/.secrets.yaml.age.XXXXXX")"
+    tmp="$(mktemp "${SECRETS_DIR}/.secrets.yaml.age.XXXXXX")"
     trap 'rm -f "$tmp"' EXIT
 
     info "Encrypting secrets.yaml (age will prompt for a passphrase)..."
@@ -74,42 +82,67 @@ cmd_encrypt() {
 
 offer_icloud_backup() {
     # Only offer interactively; skip in non-TTY contexts (CI, pipes).
-    [[ -t 0 ]] || return 0
+    [[ -t 0 ]] || { warn_left_in_repo; return 0; }
 
     if [[ ! -d "$ICLOUD_BACKUP_DIR" ]]; then
         warn "iCloud backup dir not found: ${ICLOUD_BACKUP_DIR} — skipping backup offer."
+        warn_left_in_repo
         return 0
     fi
 
     local reply
-    read -r -p "Back up secrets.yaml.age to iCloud (Administrator ⚙️)? [y/N] " reply
+    read -r -p "Move secrets.yaml.age to iCloud (Administrator ⚙️)? [y/N] " reply
     case "$reply" in
-        [yY]|[yY][eE][sS])
-            cp "$ENC_FILE" "${ICLOUD_BACKUP_DIR}/secrets.yaml.age"
-            info "Backed up to ${ICLOUD_BACKUP_DIR}/secrets.yaml.age"
-            ;;
-        *)
-            info "Skipped iCloud backup."
-            ;;
+        [yY]|[yY][eE][sS]) ;;
+        *) info "Skipped iCloud backup."; warn_left_in_repo; return 0 ;;
     esac
+
+    # Copy, verify, then delete — never remove the repo copy until the
+    # iCloud copy is known-good.
+    cp "$ENC_FILE" "${ICLOUD_ENC_FILE}.tmp" \
+        || die "Copy to iCloud failed; left $(basename "$ENC_FILE") in the repo root."
+    if ! cmp -s "$ENC_FILE" "${ICLOUD_ENC_FILE}.tmp"; then
+        rm -f "${ICLOUD_ENC_FILE}.tmp"
+        die "iCloud copy did not verify; left $(basename "$ENC_FILE") in the repo root."
+    fi
+    chmod 600 "${ICLOUD_ENC_FILE}.tmp"
+    mv "${ICLOUD_ENC_FILE}.tmp" "$ICLOUD_ENC_FILE"
+
+    rm -f "$ENC_FILE"
+    info "Moved to ${ICLOUD_ENC_FILE} — iCloud now holds the only copy."
+}
+
+warn_left_in_repo() {
+    warn "$(basename "$ENC_FILE") is still at ${ENC_FILE} with no off-machine" \
+         "backup. Re-run and accept, or copy it into iCloud yourself."
 }
 
 cmd_decrypt() {
     require_age
     local force="$1"
-    [[ -f "$ENC_FILE" ]] || die "secrets.yaml.age not found at ${ENC_FILE}"
+
+    # The repo root copy is transient; iCloud is where the .age file lives.
+    local src
+    if [[ -f "$ENC_FILE" ]]; then
+        src="$ENC_FILE"
+    elif [[ -f "$ICLOUD_ENC_FILE" ]]; then
+        src="$ICLOUD_ENC_FILE"
+        info "Using the iCloud copy: ${src}"
+    else
+        die "secrets.yaml.age not found at ${ENC_FILE} or ${ICLOUD_ENC_FILE}"
+    fi
 
     if [[ -f "$PLAIN_FILE" && "$force" != "true" ]]; then
         die "secrets.yaml already exists. Re-run with -f to overwrite it.\n" \
-            "    Compare first with: age -d ${ENC_FILE} | diff ${PLAIN_FILE} -"
+            "    Compare first with: age -d '${src}' | diff ${PLAIN_FILE} -"
     fi
 
     local tmp
-    tmp="$(mktemp "${REPO_ROOT}/.secrets.yaml.XXXXXX")"
+    tmp="$(mktemp "${SECRETS_DIR}/.secrets.yaml.XXXXXX")"
     trap 'rm -f "$tmp"' EXIT
 
     info "Decrypting secrets.yaml.age (age will prompt for the passphrase)..."
-    if ! age -d -o "$tmp" "$ENC_FILE"; then
+    if ! age -d -o "$tmp" "$src"; then
         die "Decryption failed (wrong passphrase or corrupt file)."
     fi
 

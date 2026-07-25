@@ -11,7 +11,7 @@ whole cluster is self-contained here.
   storage. Boot volume sizes are declared in Terraform (`*_boot_volume_gb`).
 - **Flux**: each cluster runs its own Flux. This one reconciles **`./oracle/flux`**
   (cereal reconciles `./kubernetes/flux`), so the two never deploy each other's apps.
-- **Secrets**: shared with cereal via the single root `secrets.yaml`. See below.
+- **Secrets**: shared with cereal via the single `secrets.yaml`. See below.
 
 > Originally adopted from the standalone `~/dv/oci-k8s-terraform` repo, then rebuilt
 > clean from this repo's templates (`terraform destroy && terraform apply`) so the
@@ -124,7 +124,7 @@ entries like `flux-system` plus anything tagged `clusters: [oracle]`), then appl
 1. Add manifests under `oracle/` (or reference shared ones under `kubernetes/`).
 2. Add a Flux `Kustomization` (e.g. `oracle/flux/<app>.yaml`) pointing at the path.
 3. List it in `oracle/flux/kustomization.yaml`.
-4. App secrets: add to root `secrets.yaml` tagged `clusters: [oracle]`, then
+4. App secrets: add to `secrets.yaml` tagged `clusters: [oracle]`, then
    `./bootstrap.sh secrets`.
 
 Note: K3s has no rook-ceph — use the `local-path` storage class, not `ceph-block`.

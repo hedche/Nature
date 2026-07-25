@@ -39,7 +39,7 @@ Almost everything is applied by the idempotent wiring script:
 ./kubernetes/media/configure-media.sh
 ```
 
-It reads the root `secrets.yaml` (`qbittorrent:` WebUI creds, `arr:` admin
+It reads the `secrets.yaml` (`qbittorrent:` WebUI creds, `arr:` admin
 account, `media-secrets` API keys) and applies: qBittorrent categories
 (`tv` → `/data/torrents/tv`, `movies` → `/data/torrents/movies`), the shared
 Forms-auth admin account on all three UIs, root folders (`/data/media/tv`,

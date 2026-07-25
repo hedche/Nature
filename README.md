@@ -1,6 +1,6 @@
 # Nature
 
-Infrastructure-as-Code for the Nature homelab. A single-secrets-file approach to declarative infrastructure: this repo + one `secrets.yaml` = a fully reproducible Kubernetes cluster.
+Infrastructure-as-Code for the Nature homelab. A single-secrets-file approach to declarative infrastructure: this repo + one `secrets.yaml` (kept outside the repo, at `~/.config/nature/secrets.yaml`) = a fully reproducible Kubernetes cluster.
 
 ## Architecture
 
@@ -69,13 +69,16 @@ cross between clusters. See `oracle/README.md` for the OCI cluster.
    # yq: https://github.com/mikefarah/yq/releases
    ```
 
-2. **Create your secrets file:**
+2. **Create your secrets file** — it lives *outside* the repo, at
+   `~/.config/nature/secrets.yaml`, so it can never be committed:
    ```bash
-   cp talos/secrets.yaml.template secrets.yaml
-   # Edit secrets.yaml and fill in your values
+   mkdir -p ~/.config/nature && chmod 700 ~/.config/nature
+   cp talos/secrets.yaml.template ~/.config/nature/secrets.yaml
+   # Edit ~/.config/nature/secrets.yaml and fill in your values
    # OR generate fresh secrets:
-   talosctl gen secrets -o secrets.yaml
+   talosctl gen secrets -o ~/.config/nature/secrets.yaml
    ```
+   Override the location for a one-off run with `NATURE_SECRETS_FILE=/path/to/file`.
 
 3. **Generate Talos configs:**
    ```bash
@@ -126,7 +129,7 @@ See **[`oracle/README.md`](oracle/README.md)** for the full step-by-step day-0
 guide (including fetching the kubeconfig and the cgroup v2 first-boot behaviour)
 and troubleshooting.
 
-Secrets are shared with cereal via the single root `secrets.yaml`. Entries tagged
+Secrets are shared with cereal via the single `secrets.yaml`. Entries tagged
 `clusters: [cereal]` stay on cereal; untagged entries (e.g. `flux-system`) are
 shared.
 
@@ -148,7 +151,6 @@ By default, PXE boots Talos into maintenance mode and does **not** serve generat
 ├── .gitignore                # Blocks secrets and generated configs
 ├── AGENTS.md                 # Conventions for AI agents working on this repo
 ├── README.md                 # This file
-├── secrets.yaml              # Your local secrets (gitignored, never commit)
 ├── ansible/
 │   ├── inventory.yml         # Ansible host inventory (photon)
 │   ├── photon.yml            # Playbook for Raspberry Pi setup
@@ -177,8 +179,24 @@ By default, PXE boots Talos into maintenance mode and does **not** serve generat
 
 ## Security Notes
 
-- **Never commit `secrets.yaml`** — it is gitignored by default.
-- **Back up `secrets.yaml` securely** — use your preferred encrypted password-manager export or any external secret storage you already trust.
+- **`secrets.yaml` lives outside the repo**, at `~/.config/nature/secrets.yaml`
+  (`chmod 700` dir, `chmod 600` file). This is the primary guardrail: a file that
+  is not in the working tree cannot be committed by a stray `git add -A`, an
+  editor, or a `git add -f` that overrides `.gitignore`. The `.gitignore` entries
+  are kept as a second layer for anyone still mid-migration. Resolve the path via
+  `scripts/secrets-path.sh` — never hardcode a path under the repo root.
+- **Back up `secrets.yaml` securely** — `./scripts/secrets-crypto.sh -e` encrypts
+  it with an age passphrase and offers to move the `.age` file to iCloud.
+- **Enable the pre-commit hook** — one-time, per clone. Hooks are not cloned:
+  ```bash
+  brew install gitleaks && git config core.hooksPath .githooks
+  ```
+  It scans the staged diff and blocks commits containing secrets. See
+  [`scripts/README.md`](scripts/README.md) for false-positive handling.
+- **GitHub secret scanning and push protection are enabled** on this repo —
+  a server-side backstop that catches provider tokens (AWS, GitHub, Google,
+  Cloudflare…) even if the local hook is bypassed. It does *not* detect
+  generic passwords; that tier is paid.
 - **Generated configs are gitignored** — `talos/generated/`, `talos/kubeconfig`, and `talos/talosconfig` all contain real credentials.
 - **PXE generated assets are gitignored** — `pxe/generated/` may contain copied Talos machine configs when unattended reinstall mode is used.
 - All Talos config templates use `${PLACEHOLDER}` variables — no secrets are stored in tracked files.

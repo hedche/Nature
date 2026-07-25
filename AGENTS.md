@@ -5,9 +5,11 @@ This repository manages two GitOps Kubernetes clusters — the Talos homelab clu
 ## 1. Secrets — NEVER commit to git
 
 - **Tokens, passwords, private keys, API keys, and certificates must never be committed.**
-- A single `secrets.yaml` file (at repo root, gitignored) holds all real values. The user backs this up encrypted externally.
+- A single `secrets.yaml` holds all real values. **It lives outside the repo**, at `~/.config/nature/secrets.yaml`. This repo is public; a file that is not in the working tree cannot be committed by accident, which is a stronger guarantee than `.gitignore` (which `git add -f` overrides and which stops applying entirely once a file is tracked).
+- **Never hardcode a secrets path.** Scripts resolve it by sourcing `scripts/secrets-path.sh`, which sets `$SECRETS_FILE`. Never write a path to `secrets.yaml` under `$REPO_ROOT` — that includes temp files.
 - Configs that need secrets are kept as **templates with placeholders**; document every new secret's schema in `talos/secrets.yaml.template` with a comment explaining how to generate it.
-- Before creating any file that might contain credentials, verify `.gitignore` blocks it.
+- Before creating any file that might contain credentials, verify `.gitignore` blocks it — and prefer writing it outside the repo entirely.
+- A `gitleaks` pre-commit hook (`.githooks/pre-commit`, rules in `.gitleaks.toml`) blocks staged secrets. **Never bypass it with `SKIP_GITLEAKS=1` or `--no-verify`** — if it fires, either the secret is real (remove it) or the pattern is a placeholder (add a narrow `.gitleaks.toml` allowlist entry, or `# gitleaks:allow` on the line).
 
 ## 2. Active vs deprecated infrastructure
 

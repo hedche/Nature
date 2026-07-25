@@ -1,7 +1,10 @@
 # === Secrets — never commit ===
 # Generated Talos configs with real credentials injected
 # talos/generated/
-# Local secrets file (single file strategy for homelab)
+# The real secrets.yaml lives OUTSIDE this repo, at ~/.config/nature/secrets.yaml
+# (see scripts/secrets-path.sh). These entries are the second layer only —
+# they catch a stale pre-migration clone. Do not rely on them: .gitignore is
+# overridden by `git add -f` and stops applying entirely once a file is tracked.
 secrets.yaml
 secrets.yaml.age
 secrets.env

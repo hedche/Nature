@@ -14,7 +14,7 @@
 ## Secrets pipeline
 
 Kubernetes application secrets are managed via `scripts/secrets.sh` and stored in the
-root `secrets.yaml` under the `kubernetes.secrets` key — one file for all secrets.
+`secrets.yaml` under the `kubernetes.secrets` key — one file for all secrets.
 
 - **Plaintext storage**: values are plaintext in `secrets.yaml`; the script
   base64-encodes them into K8s Secret manifests at push time.

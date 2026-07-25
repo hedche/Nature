@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-SECRETS_FILE="${REPO_ROOT}/secrets.yaml"
+source "${REPO_ROOT}/scripts/secrets-path.sh"
 
 HERMES_SSH_HOST="${HERMES_SSH_HOST:-ubuntu@10.30.1.57}"
 HERMES_DIR="${HERMES_DIR:-/home/ubuntu/nature-hermes}"
