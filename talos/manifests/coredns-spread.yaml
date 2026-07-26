@@ -1,0 +1,43 @@
+# CoreDNS availability patch — spread replicas across nodes.
+#
+# Talos ships CoreDNS as a bootstrap manifest with 2 replicas and only a *soft*
+# (preferred) pod anti-affinity. Because cereal (the single control plane) sits at ~12%
+# of its CPU requests while snap and pop run at ~94%/90%, the scheduler's
+# least-requested scoring put BOTH replicas on cereal and the soft preference was not
+# enough to override it. On 2026-07-26 cereal's battery ran flat (it is a laptop — see
+# HARDWARE.md) and cluster DNS died with it: every pod failed to resolve internal *and*
+# external names, which surfaced as "all indexers unavailable" in Radarr/Prowlarr.
+#
+# This patch makes the spread mandatory, so no two CoreDNS pods can share a node and
+# losing any single node — control plane included — always leaves DNS serving.
+#
+#   replicas: 3        one per Ready node (cereal, snap, pop; crackle when it returns)
+#   required...        hard anti-affinity on hostname, replacing the soft preference
+#   maxSurge: 0        a surge pod could not satisfy the anti-affinity and would wedge
+#                      the rollout, so replace in place instead
+#
+# Apply (also safe to re-run; it is idempotent):
+#   kubectl -n kube-system patch deploy coredns --patch-file talos/manifests/coredns-spread.yaml
+#
+# NOTE: CoreDNS is a Talos-managed bootstrap manifest, not Flux-managed. The patch
+# persists through normal operation and reboots, but `talosctl upgrade-k8s` re-renders
+# the default manifest — re-apply this file after any Kubernetes upgrade and confirm with:
+#   kubectl -n kube-system get pods -l k8s-app=kube-dns -o wide
+spec:
+  replicas: 3
+  strategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: k8s-app
+                    operator: In
+                    values:
+                      - kube-dns
+              topologyKey: kubernetes.io/hostname

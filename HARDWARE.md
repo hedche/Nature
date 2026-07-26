@@ -8,14 +8,31 @@ All hardware discovered from live nodes via `talosctl get disks -i`, `get linkst
 
 | Component | Detail |
 |-----------|--------|
-| **Chassis** | HP EliteDesk (InsydeH2O UEFI firmware) |
+| **Chassis** | HP 250 G5 **Notebook** PC (InsydeH2O UEFI firmware) — a laptop, not a desktop; `/sys/class/dmi/id/product_name` |
 | **CPU** | Intel (4 cores) |
 | **RAM** | 8 GB (7,998 MB) |
+| **Battery** | `BAT1` + `ACAD` under `/sys/class/power_supply` — the only cluster node with a battery |
 | **NIC** | Realtek RTL8111/8168/8211/8411 GbE — `eno1` (also `enp1s0`), MAC `3c:52:82:bb:75:8a`, driver `r8169`, 1 Gbps |
 | **Install Disk** | Samsung MZNLN256HMHQ 256 GB M.2 SATA SSD — `/dev/sdb`, wwid `naa.5002538d41d60108`, serial `S2Y2NX0J377953`, bus `/pci0000:00/0000:00:17.0/ata1/host1/target1:0:0/1:0:0:0` |
 | **Optical** | HP DVDRW DU8AESH (SATA, ata2) |
 
 **Known issue:** HP InsydeH2O UEFI does not automatically create an EFI NVRAM boot entry for the Samsung SSD after Talos install. Secure Boot must be disabled, and the boot entry may need to be added manually or via the BIOS "Select a UEFI file as trusted" option.
+
+**Known issue — runs on battery if the charger is unplugged.** cereal is a laptop, so an
+unplugged charger does not fail loudly: it keeps running for roughly five hours and then
+dies silently. This happened on 2026-07-26 — cereal came up fine after the relocation,
+ran ~5h, and dropped at 02:48 UTC, taking the whole cluster's DNS with it (both CoreDNS
+replicas were on it). Check with:
+
+```sh
+talosctl -n 10.30.1.50 read /sys/class/power_supply/ACAD/online   # 1 = charger connected
+talosctl -n 10.30.1.50 read /sys/class/power_supply/BAT1/status   # Charging / Discharging
+talosctl -n 10.30.1.50 read /sys/class/power_supply/BAT1/capacity # percent
+```
+
+The battery is a de-facto UPS for the control plane, but only while it holds charge — and
+a discharged battery reads as an ordinary total outage. Worth a Prometheus alert on
+`ACAD/online == 0`.
 
 ---
 

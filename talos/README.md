@@ -24,6 +24,8 @@ talos/
 │   ├── snap.yaml             # snap (worker, 10.30.1.51)
 │   ├── crackle.yaml          # crackle (worker, 10.30.1.52) — hostname + disk overrides
 │   └── pop.yaml              # pop (worker, 10.30.1.53)
+├── manifests/                # Post-bootstrap patches to Talos-managed manifests
+│   └── coredns-spread.yaml   # Hard anti-affinity so CoreDNS never single-homes
 ├── bootstrap.sh              # Full cluster bootstrap / per-node apply / status
 ├── .envrc                    # direnv: auto-sets TALOSCONFIG + KUBECONFIG
 ├── secrets.yaml.template     # Schema for your local secrets.yaml
@@ -129,6 +131,42 @@ machine:
 | snap | NVMe (TBD) | TBD |
 | crackle | Micron 2200S NVMe 256GB | KIOXIA-EXCERIA S 960GB (SATA) |
 | pop | NVMe (TBD) | TBD |
+
+## CoreDNS Availability (`manifests/coredns-spread.yaml`)
+
+Talos manages CoreDNS as a bootstrap manifest with 2 replicas and only a **soft**
+anti-affinity, so both replicas can land on one node — and they did, both on `cereal`,
+because it runs at ~12% of its CPU requests while `snap`/`pop` sit at ~94%/90% and the
+scheduler prefers the emptiest node. When cereal's battery ran flat on 2026-07-26
+(it is a laptop — see `../HARDWARE.md`) **all** cluster DNS went with it: every pod
+failed to resolve internal *and* external names, which shows up in Radarr/Prowlarr as
+`Resource temporarily unavailable (…)` and "all indexers unavailable".
+
+`manifests/coredns-spread.yaml` makes the spread mandatory (3 replicas, hard hostname
+anti-affinity), so any single node can be lost without losing DNS:
+
+```sh
+kubectl -n kube-system patch deploy coredns --patch-file manifests/coredns-spread.yaml
+kubectl -n kube-system get pods -l k8s-app=kube-dns -o wide   # expect one per node
+```
+
+Re-apply after `talosctl upgrade-k8s`, which re-renders the stock manifest. Note this
+mitigates DNS only — `cereal` is still the **single control plane**, so losing it still
+means no API server, no `kubectl`, and no scheduling.
+
+With the API server down you can still drive the media stack over its REST APIs, since the
+pods keep running on the workers and stay reachable on their `ts.net` URLs. The keys are in
+`secrets.yaml`, not only in the pods:
+
+```sh
+KEY=$(yq -r '(.kubernetes.secrets[] | select(.name == "media-secrets")).data.RADARR__AUTH__APIKEY' \
+      ~/.config/nature/secrets.yaml)
+curl -H "X-Api-Key: $KEY" https://radarr.tail0a6fa.ts.net/api/v3/health
+curl -X POST -H "X-Api-Key: $KEY" https://radarr.tail0a6fa.ts.net/api/v3/indexer/testall
+```
+
+`indexer/testall` reports the real underlying error rather than the vague UI banner, and
+`/api/v3/log?...&sortDirection=ascending&level=error` finds when an incident started.
 
 ## PXE Recovery Reinstall
 
