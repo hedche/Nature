@@ -6,8 +6,11 @@
 #   - Prowlarr -> Sonarr/Radarr application links (full sync)
 #   - Prowlarr indexer proxies: VPN (gluetun, tag vpn) + FlareSolverr
 #     (tag flaresolverr)
-#   - Sonarr/Radarr quality profiles restricted to web (<=1080p): no
-#     Blu-ray/Remux, no 2160p — grab smaller web releases to save disk
+#   - Sonarr/Radarr quality definitions capped by size (MB/minute), so a
+#     bloated release is rejected whatever its source claims to be
+#   - Sonarr/Radarr quality profiles scoped to match their names (SD,
+#     HD-720p, ...), blocking only the formats that are huge by
+#     construction: Remux, BR-DISK, Raw-HD
 #
 # Everything it applies is derived from this repo + the root secrets.yaml
 # (qbittorrent: WebUI creds, arr: webui creds, kubernetes.secrets
@@ -291,17 +294,52 @@ def harden_indexers(app):
               + ("" if st in (200, 202) else f" {r}"))
 
 
-def _blocked_quality(q):
-    """A quality we never want: Blu-ray / Remux sources, or anything above
-    1080p (2160p/4K WEB is huge too). Name+resolution test works for both
-    Radarr (Bluray-1080p, Remux-1080p, WEBDL-2160p) and Sonarr
-    (Bluray-1080p Remux, WEBDL-2160p)."""
-    name = q.get("name", "")
-    # BR-DISK is a full untouched Blu-ray disc image (largest format of all);
-    # its name doesn't contain "Bluray", so match it explicitly.
-    if "Bluray" in name or "Remux" in name or name == "BR-DISK":
-        return True
-    return (q.get("resolution") or 0) > 1080
+# Size ceilings in MB per minute of runtime, keyed by the quality's
+# resolution. Disk is saved here rather than by banning sources: the arr
+# parsers map BRRip, BDRip and a full Blu-ray encode all onto the same
+# Bluray-<res> quality, so a source ban can't tell a 900MB YIFY rip from a
+# 12GB one — but MB/minute can. preferredSize steers the upgrade target,
+# maxSize is the hard reject.
+QUALITY_SIZES = {
+    # SD runs to 12 rather than 8: DVD-source packs of short-runtime shows sit
+    # around 10 MB/min, and 8 rejected the only release that existed for some
+    # of them. 12 still caps a 100-minute SD film at ~1.2 GB.
+    576: (6, 12),
+    720: (8, 15),
+    1080: (12, 25),
+    2160: (45, 90),
+}
+
+# Formats that are huge by construction rather than by encoder choice, so no
+# size cap makes them reasonable: Remux (untouched stream in a new container),
+# BR-DISK (full disc image), Raw-HD (raw HD transport stream). Substring test
+# covers Radarr's "Remux-1080p" and Sonarr's "Bluray-1080p Remux" alike.
+GIANT_FORMATS = ("Remux", "BR-DISK", "Raw-HD")
+
+# What each stock profile's name promises, as an inclusive resolution range.
+# Profiles not listed here (anything you renamed or created yourself) keep
+# whatever qualities they have; only the giants are unticked.
+PROFILE_SCOPE = {
+    "SD": (0, 576),
+    "HD-720p": (720, 720),
+    "HD-1080p": (1080, 1080),
+    "HD - 720p/1080p": (720, 1080),
+    "Ultra-HD": (2160, 2160),
+    "Any": (0, 1080),
+}
+
+
+def _giant_quality(q):
+    return any(g in q.get("name", "") for g in GIANT_FORMATS)
+
+
+def _size_for(resolution):
+    """The (preferred, max) pair for a quality, by nearest tier at or above
+    its resolution — SD qualities all report <=576."""
+    for res in sorted(QUALITY_SIZES):
+        if (resolution or 0) <= res:
+            return QUALITY_SIZES[res]
+    return None
 
 
 def _walk_items(items):
@@ -315,19 +353,52 @@ def _walk_items(items):
                 yield sub
 
 
-def ensure_web_only_profiles(app):
-    """Restrict every quality profile to web (and smaller) releases: disallow
-    all Bluray/Remux and anything >1080p, keeping WEBDL/WEBRip/HDTV/SD <=1080p.
-    Edits profiles in place so items already assigned keep their profile but
-    stop accepting Blu-ray. A profile that would be left with nothing allowed
-    (e.g. Radarr's stock Ultra-HD, all 2160p) is skipped, not broken."""
+def ensure_quality_sizes(app):
+    """Apply the MB/minute ceilings. This is the real disk guard — it applies
+    to every source equally, so a small BRRip passes and a bloated WEB-DL
+    doesn't."""
+    _, defs = api(app, "/qualitydefinition")
+    payload = []
+    for d in defs:
+        q = d["quality"]
+        if _giant_quality(q):
+            continue
+        size = _size_for(q.get("resolution"))
+        if size is None:
+            continue
+        pref, mx = size
+        if (d.get("preferredSize"), d.get("maxSize")) == (pref, mx):
+            continue
+        d["preferredSize"], d["maxSize"] = pref, mx
+        payload.append(d)
+    if not payload:
+        print(f"{app}: quality size limits already applied")
+        return
+    st, r = api(app, "/qualitydefinition/update", payload, method="PUT")
+    names = ", ".join(d["quality"]["name"] for d in payload)
+    print(f"{app}: cap sizes (MB/min) on {len(payload)} qualities -> HTTP {st}"
+          + ("" if st in (200, 202) else f" {r}") + f"\n    {names}")
+
+
+def ensure_scoped_profiles(app):
+    """Tick each profile's qualities back to what its name promises, minus the
+    giants (Remux/BR-DISK/Raw-HD), which no size cap can rescue. Edits profiles
+    in place so items already assigned keep their profile. A profile that would
+    be left with nothing allowed is skipped, not broken."""
     _, profiles = api(app, "/qualityprofile")
     for prof in profiles:
         items = prof.get("items", [])
+        lo, hi = PROFILE_SCOPE.get(prof["name"], (None, None))
         changed = False
         any_allowed = False
         for leaf in _walk_items(items):
-            want = not _blocked_quality(leaf["quality"])
+            q = leaf["quality"]
+            if _giant_quality(q):
+                want = False
+            elif lo is None:
+                want = leaf.get("allowed", False)
+            else:
+                want = lo <= (q.get("resolution") or 0) <= hi
             if leaf.get("allowed") is not want:
                 leaf["allowed"] = want
                 changed = True
@@ -342,35 +413,28 @@ def ensure_web_only_profiles(app):
                     changed = True
 
         if not any_allowed:
-            print(f"{app}: profile '{prof['name']}' has no web/<=1080p quality — skipped")
+            print(f"{app}: profile '{prof['name']}' has nothing left to allow — skipped")
             continue
 
         # Cutoff must reference an allowed *top-level* item — a standalone
         # allowed quality, or a group (its id, not the quality nested inside).
         # Radarr groups its WEB qualities, so pointing cutoff at a leaf id is
-        # rejected. Build the valid ids and retarget only if the current cutoff
-        # is no longer valid, preferring the item that carries WEBDL-1080p.
+        # rejected. items[] runs worst -> best, so the last allowed one is the
+        # profile's ceiling; retarget only if the current cutoff went invalid.
         def cutoff_id(it):
             return it["quality"]["id"] if it.get("quality") is not None else it["id"]
 
-        def has_webdl_1080(it):
-            if it.get("quality") is not None:
-                return it["quality"].get("name") == "WEBDL-1080p"
-            return any(s.get("allowed") and s["quality"].get("name") == "WEBDL-1080p"
-                       for s in it.get("items", []) if s.get("quality"))
-
         valid = [cutoff_id(it) for it in items if it.get("allowed")]
-        best = next((cutoff_id(it) for it in items if it.get("allowed") and has_webdl_1080(it)),
-                    valid[0])
         if prof.get("cutoff") not in valid:
-            prof["cutoff"] = best
+            prof["cutoff"] = valid[-1]
             changed = True
 
         if not changed:
-            print(f"{app}: profile '{prof['name']}' already web-only")
+            print(f"{app}: profile '{prof['name']}' already scoped")
             continue
         st, r = api(app, f"/qualityprofile/{prof['id']}", prof, method="PUT")
-        print(f"{app}: profile '{prof['name']}' -> web-only (blocked Bluray/Remux/>1080p) -> HTTP {st}"
+        scope = "in scope for its name" if prof["name"] in PROFILE_SCOPE else "minus giants"
+        print(f"{app}: profile '{prof['name']}' -> {scope} -> HTTP {st}"
               + ("" if st in (200, 202) else f" {r}"))
 
 
@@ -410,7 +474,9 @@ ensure_prowlarr_app("Radarr", "http://radarr.media.svc.cluster.local:7878", "RAD
                     [2000, 2010, 2020, 2030, 2040, 2045, 2050, 2060])
 harden_indexers("sonarr")
 harden_indexers("radarr")
-ensure_web_only_profiles("sonarr")
-ensure_web_only_profiles("radarr")
+ensure_quality_sizes("sonarr")
+ensure_quality_sizes("radarr")
+ensure_scoped_profiles("sonarr")
+ensure_scoped_profiles("radarr")
 print("media wiring applied.")
 PYEOF

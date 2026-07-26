@@ -60,17 +60,36 @@ already blocklisted, even from another indexer). A Prowlarr full resync can
 reset these *arr-side fields, so just re-run the script afterwards — it's
 idempotent.
 
-It also restricts every Sonarr/Radarr **quality profile to web releases at
-1080p or below**: all `Bluray-*` and `Remux-*` qualities and anything above
-1080p (2160p/4K) are disallowed, leaving WEBDL/WEBRip and HDTV/SDTV/DVD (≤1080p)
-allowed as smaller fallbacks. This is the standard TRaSH-guide mechanism for
-excluding a source — a quality that isn't allowed is never grabbed — and it
-keeps Blu-ray/Remux (20–60 GB+) off the 1 TB disk. Profiles are edited in place,
-so items already assigned to a profile keep it but stop accepting Blu-ray on
-their next search/upgrade; the cutoff is retargeted to a web quality if needed.
-A profile that would be left with nothing allowed (Radarr's stock **Ultra-HD**,
-which is all 2160p) is skipped rather than broken — don't assign anything to it.
-The change is forward-looking: it does not cancel Blu-rays already in the
+It also keeps the 1 TB disk under control, but by **size rather than by
+source**. The script sets each quality's `maxSize`/`preferredSize` in MB per
+minute of runtime:
+
+| Resolution | preferred | max | ≈ for a 100-minute film |
+| ---------- | --------- | --- | ----------------------- |
+| ≤576p (SD) | 6         | 12  | 1.2 GB                  |
+| 720p       | 8         | 15  | 1.5 GB                  |
+| 1080p      | 12        | 25  | 2.5 GB                  |
+| 2160p      | 45        | 90  | 9 GB                    |
+
+Size is the right lever because the *arr parsers give you no way to express
+"small rip": BRRip, BDRip and a 12 GB Blu-ray encode all parse as the same
+`Bluray-<res>` quality. Banning the source therefore rejected a 900 MB YIFY
+BRRip and a bloated Blu-ray identically, while letting a fat 1080p WEB-DL
+straight through. A MB/minute ceiling rejects the bloat from *every* source
+and lets the small rip in.
+
+Only the formats that are huge by construction rather than by encoder choice
+stay banned outright, since no size cap makes them reasonable: **Remux**
+(untouched stream, new container), **BR-DISK** (full disc image) and
+**Raw-HD** (raw HD transport stream).
+
+Beyond that, each quality profile is scoped to what its name promises —
+`SD` ≤576p, `HD-720p` 720p only, `HD-1080p` 1080p only, `HD - 720p/1080p`
+both, `Ultra-HD` 2160p, `Any` everything ≤1080p. Profiles you renamed or
+created yourself aren't touched except to untick the giants. Profiles are
+edited in place, so items already assigned keep their profile; the cutoff is
+retargeted to the profile's ceiling only if the old one fell out of scope.
+Changes are forward-looking — they don't cancel anything already in the
 download queue (clear those from Radarr → Activity and re-search).
 
 Note the stack-wide malware backstop lives on hermes
