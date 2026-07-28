@@ -1,0 +1,192 @@
+# Nature homelab watchdog — the LAN-side vantage point for the cereal cluster.
+#
+# SOURCE OF TRUTH: <repo>/home-assistant/packages/nature-watchdog.yaml
+# This file is NOT deployed by Flux or Ansible. Copy it to
+# /config/packages/nature-watchdog.yaml on hassio (10.30.1.60) and reload.
+# See ../README.md for the procedure and the drift caveat.
+#
+# Why this exists: cereal's Prometheus cannot report that cereal is dead. Home
+# Assistant runs on separate hardware, on the same LAN, with phone push already
+# working — so it is the one observer that survives the whole cluster going away.
+#
+# Replace notify.mobile_app_REPLACE_ME with your actual companion-app entity.
+# Find it with: Developer Tools -> Actions -> search "notify".
+
+command_line:
+  # HA removed the `ping` binary_sensor YAML platform (it is config-flow only
+  # now), so these are command_line sensors rather than platform: ping.
+  - binary_sensor:
+      name: cereal_node_up
+      command: "ping -c 2 -W 2 10.30.1.50 > /dev/null 2>&1 && echo ON || echo OFF"
+      payload_on: "ON"
+      payload_off: "OFF"
+      scan_interval: 60
+      device_class: connectivity
+
+  - binary_sensor:
+      name: snap_node_up
+      command: "ping -c 2 -W 2 10.30.1.51 > /dev/null 2>&1 && echo ON || echo OFF"
+      payload_on: "ON"
+      payload_off: "OFF"
+      scan_interval: 60
+      device_class: connectivity
+
+  - binary_sensor:
+      name: crackle_node_up
+      command: "ping -c 2 -W 2 10.30.1.52 > /dev/null 2>&1 && echo ON || echo OFF"
+      payload_on: "ON"
+      payload_off: "OFF"
+      scan_interval: 60
+      device_class: connectivity
+
+  - binary_sensor:
+      name: pop_node_up
+      command: "ping -c 2 -W 2 10.30.1.53 > /dev/null 2>&1 && echo ON || echo OFF"
+      payload_on: "ON"
+      payload_off: "OFF"
+      scan_interval: 60
+      device_class: connectivity
+
+  # ICMP is not enough on its own: during the 2026-07-18 crackle outage the node
+  # answered ping for nine days while the kubelet was hung. A TCP check on the
+  # API server is the more honest "is the cluster actually usable" signal.
+  - binary_sensor:
+      name: cereal_apiserver_up
+      command: "nc -z -w 3 10.30.1.50 6443 && echo ON || echo OFF"
+      payload_on: "ON"
+      payload_off: "OFF"
+      scan_interval: 60
+      device_class: connectivity
+
+input_datetime:
+  nature_last_heartbeat:
+    name: Nature last heartbeat
+    has_date: true
+    has_time: true
+
+template:
+  - binary_sensor:
+      # The recurring failure (2026-07-15, -24, -25) is all four nodes going
+      # ARP-dead simultaneously. That is one LAN/switch problem, not four
+      # independent machine failures, and it deserves a different message.
+      - name: nature_cluster_lan_leg_up
+        device_class: connectivity
+        state: >-
+          {{ is_state('binary_sensor.cereal_node_up', 'on')
+             or is_state('binary_sensor.snap_node_up', 'on')
+             or is_state('binary_sensor.crackle_node_up', 'on')
+             or is_state('binary_sensor.pop_node_up', 'on') }}
+
+      - name: nature_monitoring_alive
+        device_class: problem
+        # Inverted: 'on' means there IS a problem.
+        state: >-
+          {{ (now().timestamp()
+              - state_attr('input_datetime.nature_last_heartbeat', 'timestamp') | float(0)) > 900 }}
+
+automation:
+  # Alertmanager POSTs the always-firing Watchdog alert here every minute
+  # (see kubernetes/monitoring/helmrelease.yaml, receiver home-assistant-heartbeat).
+  - alias: "Nature — record cluster heartbeat"
+    id: nature_record_cluster_heartbeat
+    mode: single
+    triggers:
+      - trigger: webhook
+        webhook_id: nature-cluster-heartbeat
+        allowed_methods: [POST]
+        local_only: true
+    actions:
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.nature_last_heartbeat
+        data:
+          timestamp: "{{ now().timestamp() }}"
+
+  # The dead-man's switch. If the heartbeat stops, either Prometheus,
+  # Alertmanager, or the entire cluster is gone — and none of them can tell you.
+  - alias: "Nature — cluster monitoring went silent"
+    id: nature_monitoring_silent
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.nature_monitoring_alive
+        to: "on"
+        for: "00:01:00"
+    actions:
+      - action: notify.mobile_app_REPLACE_ME
+        data:
+          title: "Cluster monitoring silent"
+          message: >-
+            No heartbeat from cereal's Alertmanager for 15 minutes. Prometheus,
+            Alertmanager or the whole cluster is down.
+          data:
+            push:
+              sound:
+                name: default
+                critical: 1
+                volume: 1.0
+
+  - alias: "Nature — entire LAN leg down (all 4 nodes ARP-dead)"
+    id: nature_lan_leg_down
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.nature_cluster_lan_leg_up
+        to: "off"
+        for: "00:03:00"
+    actions:
+      - action: notify.mobile_app_REPLACE_ME
+        data:
+          title: "All 4 cluster nodes unreachable"
+          message: >-
+            cereal, snap, crackle and pop all stopped answering at once — this is
+            the switch leg, not the machines.
+          data:
+            push:
+              sound:
+                name: default
+                critical: 1
+                volume: 1.0
+
+  # cereal alone, with the others up, is almost always the charger.
+  - alias: "Nature — cereal down but the workers are up"
+    id: nature_cereal_alone_down
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.cereal_node_up
+        to: "off"
+        for: "00:05:00"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.snap_node_up
+        state: "on"
+    actions:
+      - action: notify.mobile_app_REPLACE_ME
+        data:
+          title: "cereal (control plane) is down"
+          message: >-
+            The workers are still up. Check the charger first — cereal is a laptop
+            and runs ~5h on battery before dying silently. See HARDWARE.md.
+
+  # Pingable but not serving: the crackle-style hang, seen from the LAN side.
+  - alias: "Nature — API server unreachable while cereal still pings"
+    id: nature_apiserver_hung
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.cereal_apiserver_up
+        to: "off"
+        for: "00:05:00"
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.cereal_node_up
+        state: "on"
+    actions:
+      - action: notify.mobile_app_REPLACE_ME
+        data:
+          title: "Kubernetes API server not answering"
+          message: >-
+            cereal answers ping but port 6443 is closed. This is the shape of the
+            2026-07-18 crackle hang — expect a remote reboot to be silently
+            ignored and plan on a physical power-cycle.

@@ -9,3 +9,8 @@ resources:
   - rook-ceph.yaml
   - peanut.yaml
   - media.yaml
+  - notifications.yaml
+  - monitoring.yaml
+  - blackbox.yaml
+  - logging.yaml
+  - health.yaml
