@@ -1,0 +1,15 @@
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Provider
+metadata:
+  name: telegram
+  namespace: flux-system
+spec:
+  type: telegram
+  address: https://api.telegram.org
+  # ${TELEGRAM_CHAT_ID} is substituted at apply time from the notification-vars
+  # Secret (see kubernetes/flux/notifications.yaml postBuild.substituteFrom).
+  # Provider has no secretRef key for the channel, and Nature is a public repo,
+  # so the chat ID is kept out of the tree rather than inlined here.
+  channel: "${TELEGRAM_CHAT_ID}"
+  secretRef:
+    name: flux-telegram-token # key: token
