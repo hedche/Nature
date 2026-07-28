@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: health
+  namespace: health
+  labels:
+    app.kubernetes.io/name: health
+    app.kubernetes.io/part-of: monitoring
+  annotations:
+    # The strrl controller creates the tunnel route and the DNS record from this
+    # Ingress. No cert-manager involved — Cloudflare terminates TLS at the edge.
+    cloudflare-tunnel-ingress-controller.strrl.dev/backend-protocol: http
+spec:
+  ingressClassName: cloudflare-tunnel
+  rules:
+    - host: health.nature.leafbit.uk
+      http:
+        paths:
+          - path: /healthz
+            pathType: Exact
+            backend:
+              service:
+                name: health
+                port:
+                  number: 8080

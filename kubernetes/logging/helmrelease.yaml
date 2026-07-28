@@ -1,0 +1,168 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: alloy
+  namespace: logging
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: alloy
+      version: "1.x"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: flux-system
+      interval: 10m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    controller:
+      type: daemonset
+      # Must run on cereal too — when the control plane misbehaves its logs are
+      # the ones you want.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+
+    rbac:
+      create: true
+    serviceAccount:
+      create: true
+
+    alloy:
+      clustering:
+        enabled: false
+      # Logs only. Deliberately NOT the k8s-monitoring chart — that one activates
+      # Grafana Cloud's separately-billed Kubernetes Monitoring SKU, which this
+      # cluster is far too large for on the free tier.
+      mounts:
+        varlog: false
+        dockercontainers: false
+      resources:
+        requests:
+          cpu: 20m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
+      extraEnv:
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: LOKI_URL
+          value: "${GRAFANA_CLOUD_LOKI_URL}"
+        - name: LOKI_USERNAME
+          value: "${GRAFANA_CLOUD_LOKI_USERNAME}"
+        - name: LOKI_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: grafana-cloud-credentials
+              key: loki-token
+      configMap:
+        create: true
+        content: |
+          // Only this node's pods — each DaemonSet member handles its own.
+          discovery.kubernetes "pods" {
+            role = "pod"
+            selectors {
+              role  = "pod"
+              field = "spec.nodeName=" + sys.env("HOSTNAME")
+            }
+          }
+
+          discovery.relabel "pods" {
+            targets = discovery.kubernetes.pods.targets
+
+            // Namespace allow-list. Anything not named here never costs ingest.
+            rule {
+              source_labels = ["__meta_kubernetes_namespace"]
+              action        = "keep"
+              regex         = "flux-system|kube-system|monitoring|logging|rook-ceph|media|peanut|traefik|cloudflared|tailscale"
+            }
+
+            // The known firehoses. rook's own logCollector already writes daily
+            // rotated logs to the host, and the CSI sidecars are pure noise at INFO.
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_name"]
+              action        = "drop"
+              regex         = "csi-.*|.*-attacher|.*-provisioner|.*-resizer|.*-snapshotter|liveness-prometheus|log-collector"
+            }
+
+            // cilium-agent at INFO is roughly half of this cluster's total volume.
+            rule {
+              source_labels = ["__meta_kubernetes_pod_label_k8s_app"]
+              action        = "drop"
+              regex         = "cilium"
+            }
+
+            rule {
+              source_labels = ["__meta_kubernetes_namespace"]
+              target_label  = "namespace"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_name"]
+              target_label  = "pod"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_name"]
+              target_label  = "container"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_node_name"]
+              target_label  = "node"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+              target_label  = "app"
+            }
+            // These change on every rollout and would fragment the log streams.
+            rule {
+              action = "labeldrop"
+              regex  = "pod_template_hash|controller_revision_hash"
+            }
+          }
+
+          loki.source.kubernetes "pods" {
+            targets    = discovery.relabel.pods.output
+            forward_to = [loki.process.trim.receiver]
+          }
+
+          loki.process "trim" {
+            // Health-check chatter is the single largest category of useless lines.
+            stage.drop {
+              expression          = "(?i)(GET /health|GET /ping|GET /metrics|readiness|liveness probe|kube-probe)"
+              drop_counter_reason = "healthcheck_noise"
+            }
+
+            // Keep everything for the namespaces we actually debug; drop DEBUG and
+            // TRACE for the chatty infrastructure ones.
+            stage.match {
+              selector = "{namespace=~\"kube-system|rook-ceph|tailscale\"}"
+              stage.drop {
+                expression          = "(?i)\\b(debug|trace)\\b"
+                drop_counter_reason = "low_severity_infra"
+              }
+            }
+
+            forward_to = [loki.write.grafana_cloud.receiver]
+          }
+
+          loki.write "grafana_cloud" {
+            endpoint {
+              url = sys.env("LOKI_URL")
+              basic_auth {
+                username = sys.env("LOKI_USERNAME")
+                password = sys.env("LOKI_TOKEN")
+              }
+            }
+            // Matches Prometheus externalLabels so logs and metrics correlate.
+            external_labels = {
+              cluster = "cereal",
+            }
+          }
