@@ -108,6 +108,20 @@ All pushed by `scripts/secrets.sh push --cluster cereal`; schemas documented in
 endpoint URLs are identifiers rather than credentials, but Nature is a public repo so they
 are kept out of the tree all the same.
 
+Two things to know about how Flux substitution fails, both verified against v2.6.4:
+
+- A **missing Secret** fails the whole Kustomization loudly — nothing is applied. So
+  `nature-vars` must exist *before* this is pushed.
+- A **missing key** inside an existing Secret silently substitutes an empty string. That
+  is survivable here only because both consumers reject it at startup (an empty
+  `remoteWrite.url` stops Prometheus loading its config; an empty `chat_id` stops
+  Alertmanager). Do not add a `${VAR}` whose empty value would be *accepted*. The
+  `${VAR:?message}` guard does **not** work — Flux substitutes the message text as the
+  value, which is worse than nothing.
+
+Only the braced `${VAR}` form is substituted, so Prometheus's `$labels` and `$value`
+templating in `rules/` passes through untouched.
+
 ## Grafana Cloud setup — manual, in this order
 
 Nothing below can be GitOps'd today. See the Terraform note at the end.

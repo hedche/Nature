@@ -13,7 +13,7 @@ metadata:
 spec:
   ingressClassName: cloudflare-tunnel
   rules:
-    - host: health.nature.leafbit.uk
+    - host: health.cereal.nature.leafbit.uk
       http:
         paths:
           - path: /healthz
