@@ -1,0 +1,81 @@
+# Detection for the failure mode that every other check missed.
+#
+# crackle went NotReady 2026-07-18 and stayed down until a physical power-cycle on
+# 2026-07-27. Root cause: an IOMMU DMAR fault storm from the NVMe controller.
+# Throughout the outage ICMP was fine, Talos apid answered normally, talosctl
+# reported kubelet "Running", and Ceph kept 3/3 OSDs up. Only kubelet healthz on
+# 127.0.0.1:10248 hung. See docs/nvme-dma-fault-monitoring.md.
+#
+# Signals come from node-problem-detector reading /dev/kmsg (see ../node-problem-detector/).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nature-hardware
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: monitoring
+spec:
+  groups:
+    - name: nature.hardware
+      rules:
+        # Observed behaviour is zero-to-storm: ~250 faults/sec when failing, exactly
+        # zero when healthy. There is no gradual ramp, so any sustained non-zero
+        # rate is actionable; the threshold only tolerates a one-off.
+        - alert: NVMeDMAFaultStorm
+          expr: increase(problem_counter{reason="NVMeDMAFault"}[5m]) > 10
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "NVMe DMA fault storm on {{ $labels.instance }} — node will wedge"
+            description: >-
+              IOMMU DMAR faults from the NVMe controller. The node is minutes away
+              from a hung kubelet. GO STRAIGHT TO A PHYSICAL POWER-CYCLE — on
+              2026-07-24 `talosctl reboot`, `talosctl reboot -e` and
+              `--mode powercycle` were all accepted and then silently ignored,
+              because the graceful shutdown sequencer wedges on the same stuck
+              NVMe. If this recurs on the same drive, reseat or replace it
+              (crackle: Micron 2200S 256GB) or check for a firmware update.
+
+        - alert: BlockDeviceLockLoop
+          expr: increase(problem_counter{reason="BlockDeviceLockLoop"}[5m]) > 5
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Talos block controller cannot lock a device on {{ $labels.instance }}"
+            description: >-
+              The `failed to lock device` retry loop that follows a DMAR fault
+              storm. Same remedy: physical power-cycle, not a remote reboot.
+
+        # The consequence, caught independently of the cause. kubelet healthz binds
+        # loopback only, so this can only be observed from on the node itself.
+        - alert: KubeletHealthzUnresponsive
+          expr: problem_gauge{type="KubeletHealthzUnresponsive"} == 1
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "kubelet healthz is not responding on {{ $labels.instance }}"
+            description: >-
+              Port 10248 is hung. The node may still answer ICMP, apid and even
+              report services as Running — do not be reassured by those. Check
+              for NVMe DMA faults, then power-cycle physically.
+
+        # NPD itself going quiet would silently disable all of the above.
+        - alert: NodeProblemDetectorDown
+          expr: up{job="node-problem-detector"} == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "node-problem-detector is not being scraped on {{ $labels.instance }}"
+            description: "Kernel-log detection is blind on this node until it returns."
+
+        - alert: NodeDiskErrors
+          expr: increase(problem_counter{reason=~"EXT4Error|IOError|FilesystemReadOnly"}[10m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Filesystem/IO errors in the kernel log on {{ $labels.instance }}"

@@ -1,0 +1,94 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nature-cluster
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: monitoring
+spec:
+  groups:
+    - name: nature.cluster
+      rules:
+        # talos/manifests/coredns-spread.yaml exists precisely because both replicas
+        # once landed on cereal and died with it, turning a laptop battery into a
+        # total cluster DNS outage. Alert if we ever drift back to that.
+        - alert: CoreDNSReplicasLow
+          expr: >-
+            kube_deployment_status_replicas_available{deployment="coredns",namespace="kube-system"} < 2
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Fewer than 2 CoreDNS replicas available"
+            description: >-
+              Cluster DNS is a documented single point of failure here — when it
+              goes, every pod fails DNS on internal and external names and the
+              *arr apps blame their indexers. If this fired after a
+              `talosctl upgrade-k8s`, re-apply talos/manifests/coredns-spread.yaml.
+
+        - alert: CoreDNSAllOnOneNode
+          expr: count(count by (node) (kube_pod_info{namespace="kube-system",pod=~"coredns-.*"})) < 2
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "All CoreDNS pods are on one node — the anti-affinity patch has been lost"
+
+        - alert: PodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total[15m]) > 3
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.pod }} restarted more than 3x in 15m"
+
+        # Complements the Flux notification-controller Provider in
+        # ../../notifications/: the Provider gives the event text immediately,
+        # this says it is *still* broken.
+        - alert: FluxReconciliationFailing
+          expr: max by (namespace, name, kind) (gotk_reconcile_condition{type="Ready",status="False"}) == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Flux {{ $labels.kind }}/{{ $labels.name }} has not reconciled for 15m"
+
+        - alert: FluxSuspended
+          expr: max by (namespace, name, kind) (gotk_suspend_status) == 1
+          for: 1h
+          labels:
+            severity: info
+          annotations:
+            summary: "Flux {{ $labels.kind }}/{{ $labels.name }} has been suspended for an hour"
+            description: "Left suspended by accident? Git and the cluster are silently diverging."
+
+        - alert: RemoteWriteFailing
+          expr: rate(prometheus_remote_storage_samples_failed_total[10m]) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "remote_write to Grafana Cloud is failing — the off-site switch is blind"
+            description: >-
+              Either the access token expired, the WAN is down, or we blew through
+              the 10k active-series free-tier cap (which drops samples silently).
+              Check Cost management in Grafana Cloud.
+
+        - alert: RemoteWriteDroppingSamples
+          expr: rate(prometheus_remote_storage_samples_dropped_total[10m]) > 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Grafana Cloud is dropping samples — likely over the free-tier cap"
+
+        # Always fires. Alertmanager POSTs it to Home Assistant every minute; HA
+        # treats its *absence* for 15 minutes as the LAN-side dead-man's switch.
+        # Never silence this.
+        - alert: Watchdog
+          expr: vector(1)
+          labels:
+            severity: none
+            channel: heartbeat
+          annotations:
+            summary: "Always-firing heartbeat; its absence means monitoring is broken."

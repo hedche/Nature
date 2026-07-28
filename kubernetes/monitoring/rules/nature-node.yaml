@@ -1,0 +1,97 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nature-node
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: monitoring
+spec:
+  groups:
+    - name: nature.node
+      rules:
+        # HARDWARE.md: cereal is an HP 250 G5 laptop and the only node with a
+        # battery. On 2026-07-26 the charger was unplugged, it ran ~5h and died
+        # silently, taking etcd, the API server and both CoreDNS replicas with it.
+        # This is the single most valuable alert in the cluster.
+        - alert: CerealOnBattery
+          expr: node_power_supply_online{power_supply="ACAD"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "cereal is running on battery — charger unplugged"
+            description: >-
+              The control-plane laptop has lost mains power. It has roughly five
+              hours before it dies silently and takes the API server and cluster
+              DNS with it. Plug the charger back in. See HARDWARE.md.
+
+        - alert: CerealBatteryLow
+          expr: >-
+            node_power_supply_capacity{power_supply="BAT1"} < 30
+            and on(instance) node_power_supply_online{power_supply="ACAD"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "cereal battery below 30% and still unplugged — shutdown imminent"
+            description: "Plug the charger in now, or gracefully drain the control plane."
+
+        - alert: NodeNotReady
+          expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.node }} has been NotReady for 5m"
+            description: >-
+              If this is crackle, check the NVMe DMA-fault alerts first — the
+              kubelet hangs while the machine stays pingable and remote reboots
+              are silently ignored. See docs/nvme-dma-fault-monitoring.md.
+              Otherwise: talosctl -n <ip> dmesg; talosctl -n <ip> service kubelet.
+
+        - alert: NodeExporterDown
+          expr: up{job="node-exporter"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "node-exporter on {{ $labels.instance }} is unreachable"
+            description: "Either the node is gone or the DaemonSet pod is unhealthy."
+
+        - alert: NodeMemoryPressure
+          expr: nature:node_memory_utilisation:ratio > 0.92
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.instance }} memory above 92% for 15m"
+
+        # etcd is intolerant of clock drift and this cluster has exactly one member.
+        - alert: NodeClockSkew
+          expr: abs(node_timex_offset_seconds) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Clock on {{ $labels.instance }} is off by more than 0.5s"
+
+        - alert: NodeUplinkErrors
+          expr: >-
+            rate(node_network_transmit_errs_total{device=~"eno.*|enp.*"}[5m]) > 1
+            or rate(node_network_receive_drop_total{device=~"eno.*|enp.*"}[5m]) > 10
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "NIC errors/drops on {{ $labels.instance }} {{ $labels.device }}"
+            description: >-
+              The cluster LAN leg has gone ARP-dead repeatedly (2026-07-15, -24, -25).
+              Sustained errors here usually precede it.
+
+        - alert: NodeRootFilesystemFilling
+          expr: nature:node_rootfs_utilisation:ratio > 0.85
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.instance }} root filesystem above 85%"

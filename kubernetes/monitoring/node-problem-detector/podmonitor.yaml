@@ -1,0 +1,28 @@
+# A PodMonitor rather than a Service + ServiceMonitor: with hostNetwork the pod IP
+# is the node IP, so a Service would only add an indirection that hides which node
+# a problem came from.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: node-problem-detector
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: node-problem-detector
+    app.kubernetes.io/part-of: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: node-problem-detector
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      relabelings:
+        # Give every series the node name, so alerts can say which box to walk to.
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: instance
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+        # nature-hardware.yaml alerts on up{job="node-problem-detector"}.
+        - targetLabel: job
+          replacement: node-problem-detector

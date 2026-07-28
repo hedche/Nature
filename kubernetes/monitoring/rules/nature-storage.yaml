@@ -1,0 +1,86 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nature-storage
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: monitoring
+spec:
+  groups:
+    - name: nature.storage
+      rules:
+        - alert: CephHealthWarning
+          expr: ceph_health_status == 1
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Ceph HEALTH_WARN for 30m"
+            description: "kubectl -n rook-ceph exec deploy/rook-ceph-tools -- ceph status"
+
+        - alert: CephHealthError
+          expr: ceph_health_status == 2
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Ceph HEALTH_ERR"
+            description: "kubectl -n rook-ceph exec deploy/rook-ceph-tools -- ceph health detail"
+
+        # The pool is replica 3 / min_size 2 across snap, crackle and pop — one OSD
+        # down is survivable, two is not.
+        - alert: CephOSDDown
+          expr: ceph_osd_up == 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Ceph OSD {{ $labels.ceph_daemon }} is down"
+            description: "Pool is size 3 / min_size 2. A second OSD loss blocks writes."
+
+        - alert: CephMonQuorumAtRisk
+          expr: count(ceph_mon_quorum_status == 1) < 3
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Fewer than 3 Ceph mons in quorum"
+
+        - alert: CephClusterNearFull
+          expr: ceph_cluster_total_used_bytes / ceph_cluster_total_bytes > 0.80
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Ceph cluster above 80% used"
+
+        # A static threshold is nearly useless on a homelab, where PVCs fill slowly
+        # and then all at once. Fire when it is both low AND trending to zero.
+        - alert: PVCFillingUp
+          expr: >-
+            kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes < 0.15
+            and predict_linear(kubelet_volume_stats_available_bytes[6h], 4 * 24 * 3600) < 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} will be
+              full within 4 days
+            description: "ceph-block has allowVolumeExpansion — edit the PVC to grow it."
+
+        - alert: PVCAlmostFull
+          expr: kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes < 0.05
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is over 95% full"
+
+        - alert: PersistentVolumeClaimPending
+          expr: kube_persistentvolumeclaim_status_phase{phase="Pending"} == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} stuck Pending"

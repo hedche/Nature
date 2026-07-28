@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-problem-detector
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: node-problem-detector
+    app.kubernetes.io/part-of: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: node-problem-detector
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: node-problem-detector
+        app.kubernetes.io/part-of: monitoring
+    spec:
+      serviceAccountName: node-problem-detector
+      # kubelet healthz binds 127.0.0.1:10248, so the check has to share the
+      # host's network namespace. This also puts the metrics port on the node IP.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      priorityClassName: system-node-critical
+      # Must run everywhere, cereal included — it is the node most likely to fail.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+      containers:
+        - name: node-problem-detector
+          image: registry.k8s.io/node-problem-detector/node-problem-detector:v1.35.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - /node-problem-detector
+            - --logtostderr
+            - --config.system-log-monitor=/config/kernel-monitor.json
+            - --config.custom-plugin-monitor=/config-custom/kubelet-healthz-monitor.json
+            # Defaults to 127.0.0.1, which with hostNetwork would make the metrics
+            # unscrapable from Prometheus on another node.
+            - --prometheus-address=0.0.0.0
+            - --prometheus-port=20257
+          ports:
+            - name: metrics
+              containerPort: 20257
+              hostPort: 20257
+              protocol: TCP
+          securityContext:
+            # /dev/kmsg is root-owned and not readable unprivileged. The monitoring
+            # namespace is labelled PSA privileged for exactly this.
+            privileged: true
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            requests:
+              cpu: 10m
+              memory: 40Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: kmsg
+              mountPath: /dev/kmsg
+              readOnly: true
+            - name: localtime
+              mountPath: /etc/localtime
+              readOnly: true
+            - name: kernel-monitor-config
+              mountPath: /config
+              readOnly: true
+            - name: kubelet-healthz-config
+              mountPath: /config-custom
+              readOnly: true
+            - name: custom-plugins
+              mountPath: /custom-plugins
+              readOnly: true
+      volumes:
+        - name: kmsg
+          hostPath:
+            path: /dev/kmsg
+            type: CharDevice
+        - name: localtime
+          hostPath:
+            path: /etc/localtime
+            type: FileOrCreate
+        - name: kernel-monitor-config
+          configMap:
+            name: node-problem-detector-kernel-monitor
+            items:
+              - key: kernel-monitor.json
+                path: kernel-monitor.json
+        - name: kubelet-healthz-config
+          configMap:
+            name: node-problem-detector-kubelet-healthz
+            items:
+              - key: kubelet-healthz-monitor.json
+                path: kubelet-healthz-monitor.json
+        - name: custom-plugins
+          configMap:
+            name: node-problem-detector-kubelet-healthz
+            defaultMode: 0755
+            items:
+              - key: kubelet-healthz.sh
+                path: kubelet-healthz.sh
