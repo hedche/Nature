@@ -16,5 +16,6 @@ data:
   TRELLO_LIST_NAME: "New ✨"
   BACKLOG_LIST_NAME: "Backlog 📋"
   BACKLOG_LABEL_NAME: "P1"
+  BACKLOG_FALLBACK_LABEL_NAME: "P2"
   BACKLOG_TOP_N: "3"
   MEMORY_FILE_PATH: "/data/memory.json"
