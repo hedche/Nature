@@ -11,4 +11,4 @@ resources:
 images:
   - name: hedche/peanut
     newName: hedche/peanut # {"$imagepolicy": "flux-system:peanut:name"}
-    newTag: main-5d15c17-1785451225 # {"$imagepolicy": "flux-system:peanut:tag"}
+    newTag: main-8066097-1785680555 # {"$imagepolicy": "flux-system:peanut:tag"}
