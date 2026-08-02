@@ -24,6 +24,36 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          # Debug restart notification: fires on EVERY container start —
+          # including each crash-loop retry — independently of the app code,
+          # so a build that dies at import still announces itself. Best
+          # effort: never fails the hook (a failing postStart would itself
+          # kill the container).
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - python3
+                  - -c
+                  - |
+                    import os, urllib.parse, urllib.request
+                    try:
+                        token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+                        chat = os.environ.get("TELEGRAM_CHAT_ID", "")
+                        if token and chat:
+                            text = "🐛 peanut container started — pod %s, version %s" % (
+                                os.environ.get("HOSTNAME", "?"),
+                                os.environ.get("APP_VERSION", "unknown"),
+                            )
+                            urllib.request.urlopen(
+                                "https://api.telegram.org/bot%s/sendMessage" % token,
+                                data=urllib.parse.urlencode(
+                                    {"chat_id": chat, "text": text}
+                                ).encode(),
+                                timeout=10,
+                            )
+                    except Exception:
+                        pass
           envFrom:
             - configMapRef:
                 name: peanut-config
