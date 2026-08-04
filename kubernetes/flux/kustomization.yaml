@@ -6,6 +6,7 @@ resources:
   - traefik.yaml
   - cloudflared.yaml
   - headlamp.yaml
+  - ai-agents.yaml
   - rook-ceph.yaml
   - peanut.yaml
   - media.yaml

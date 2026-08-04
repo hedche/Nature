@@ -29,8 +29,11 @@ spec:
     proxyConfig:
       defaultTags: "tag:k8s"
       firewallMode: auto
+    # Auth mode: the proxy impersonates the caller's tailnet identity toward
+    # the API server (tagged devices become group "tag:<name>"), so access is
+    # enforced by RBAC — see kubernetes/ai-agents/ and docs/ai-agent-cluster-access.md.
     apiServerProxyConfig:
-      mode: "false"
+      mode: "true"
   valuesFrom:
     - kind: Secret
       name: operator-oauth
