@@ -32,7 +32,17 @@ Every change must be reproducible from this repo + the single secrets file.
 
 Never apply ad-hoc `kubectl` commands (labels, annotations, RBAC, namespaces, etc.) that aren't captured in a script or manifest. Any new kubectl-managed state must be added to `talos/bootstrap.sh` or a manifest under `kubernetes/` so it survives a full wipe and re-bootstrap. The same spirit applies to hosts: fix the repo and redeploy, don't patch the machine.
 
-## 5. Area-specific conventions (nested AGENTS.md)
+## 5. Troubleshooting the cereal cluster (AI agents)
+
+Read-only cluster access exists for agents — use it instead of asking for
+admin credentials. The identity is group `tag:ai-agent` via the Tailscale API
+server proxy, or a short-lived token (`kubectl -n ai-agents create token
+ai-agent --duration=1h`). It can read workloads, logs, events, and Flux state;
+it cannot read Secrets, exec, or mutate. Setup and usage:
+`kubernetes/ai-agents/README.md`; rationale: `docs/ai-agent-cluster-access.md`.
+Fixes always go through this repo (section 4), never the API.
+
+## 6. Area-specific conventions (nested AGENTS.md)
 
 The nearest `AGENTS.md` to the files being edited takes precedence. Read the relevant one before working in:
 

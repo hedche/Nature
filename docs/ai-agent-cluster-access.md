@@ -4,10 +4,12 @@ How to give AI agents (Claude Code, other LLM-driven tooling) enough access to
 troubleshoot the **cereal** Talos cluster — pods, logs, events, Flux status —
 without the ability to mutate the cluster or read secrets.
 
-This is a design/research doc: nothing in it is applied yet. It surveys current
-best practice and proposes an implementation that reuses infrastructure this
-repo already runs (Tailscale Kubernetes operator, Headlamp-style read-only
-RBAC, Flux GitOps).
+This doc records the best-practice research and the design rationale. The
+design is **implemented**: RBAC lives in `kubernetes/ai-agents/` (see its
+README for setup/usage), and the Tailscale API server proxy is enabled in
+`kubernetes/tailscale/operator/helmrelease.yaml`. The only manual step is the
+tailnet ACL grant for `tag:ai-agent` (documented in
+`kubernetes/ai-agents/README.md`).
 
 ---
 
@@ -62,9 +64,9 @@ Three independent layers, each already partially present in this repo:
 
 | Layer | Mechanism | Status in repo |
 |-------|-----------|----------------|
-| **Network** | Tailscale K8s operator API server proxy, auth mode | Operator deployed (`kubernetes/tailscale/operator/`), proxy **disabled** (`apiServerProxyConfig.mode: "false"`) |
-| **Authorization** | Dedicated read-only ClusterRole, no secrets/exec | Precedent exists: `headlamp-readonly` (`kubernetes/headlamp/rbac.yaml`) |
-| **Tooling** | Kubernetes MCP server in `--read-only` mode | Not yet configured |
+| **Network** | Tailscale K8s operator API server proxy, auth mode | Enabled (`kubernetes/tailscale/operator/helmrelease.yaml`, `apiServerProxyConfig.mode: "true"`) |
+| **Authorization** | Dedicated read-only ClusterRole, no secrets/exec | `ai-agent-readonly` (`kubernetes/ai-agents/rbac.yaml`), modeled on `headlamp-readonly` |
+| **Tooling** | Kubernetes MCP server in `--read-only` mode | Per agent host — config in `kubernetes/ai-agents/README.md` |
 | **Write path** | PRs to this repo → review → Flux reconcile | Already the only supported write path |
 
 Why this shape and not alternatives:
@@ -84,12 +86,12 @@ Why this shape and not alternatives:
 
 ### Phase 1 — RBAC identity (manifest, GitOps-applied)
 
-New `kubernetes/ai-agents/` kustomization with a ClusterRole modeled on
+Implemented in `kubernetes/ai-agents/`: a ClusterRole modeled on
 `headlamp-readonly`, bound to both a tailnet tag group and a ServiceAccount
 (for the token fallback):
 
 ```yaml
-# kubernetes/ai-agents/rbac.yaml (proposed)
+# kubernetes/ai-agents/rbac.yaml (abridged)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
