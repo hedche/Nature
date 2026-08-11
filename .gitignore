@@ -37,6 +37,16 @@ pxe/assets/
 # locally just in case.
 hermes/.env
 
+# Serial boot-log captures from ESP devices — contain BSSIDs and internal
+# IPs; always temporary, never commit.
+serial-boot*.txt
+
+# === ESPHome (home-assistant/esphome/) ===
+# secrets.yaml is matched by the global rule above; the rendered per-build
+# copy and the PlatformIO build dir are listed explicitly for parity.
+home-assistant/esphome/secrets.yaml
+home-assistant/esphome/.esphome/
+
 # === Direnv ===
 .direnv/
 

@@ -1,0 +1,64 @@
+# Template sensors feeding the bedroom ESPHome panel
+# (home-assistant/esphome/bedroom-panel.yaml).
+#
+# Computes today's at-a-glance weather from the Met Office hourly forecast.
+# If the Met Office weather entity ID differs, update it in BOTH the
+# trigger and the action below, and in the ESPHome substitution.
+template:
+  - triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+      - trigger: homeassistant
+        event: start
+      - trigger: state
+        entity_id: weather.met_office_wells
+    actions:
+      - action: weather.get_forecasts
+        target:
+          entity_id: weather.met_office_wells
+        data:
+          type: hourly
+        response_variable: fc
+      - variables:
+          today_hours: >
+            {{ (fc['weather.met_office_wells'].forecast | default([]))
+               | selectattr('datetime', 'ge', today_at('00:00').isoformat())
+               | selectattr('datetime', 'lt', (today_at('00:00') + timedelta(days=1)).isoformat())
+               | list }}
+          wet_hours: >
+            {{ today_hours | selectattr('precipitation', 'defined')
+               | selectattr('precipitation', '>', 0.1) | list }}
+    sensor:
+      - name: "Panel Today Temp Min"
+        unique_id: panel_today_temp_min
+        unit_of_measurement: "°C"
+        state: >
+          {{ (today_hours | map(attribute='temperature') | min) | round(0)
+             if today_hours else none }}
+      - name: "Panel Today Temp Max"
+        unique_id: panel_today_temp_max
+        unit_of_measurement: "°C"
+        state: >
+          {{ (today_hours | map(attribute='temperature') | max) | round(0)
+             if today_hours else none }}
+      - name: "Panel Today Rain Total"
+        unique_id: panel_today_rain_total
+        unit_of_measurement: "mm"
+        state: >
+          {{ (wet_hours | map(attribute='precipitation') | sum) | round(1)
+             if today_hours else none }}
+      # String sensor (no unit): compact "when will it rain" line for the
+      # panel, e.g. "3.2mm 14:00–17:00" or "No rain expected".
+      - name: "Panel Today Rain When"
+        unique_id: panel_today_rain_when
+        state: >
+          {% if not today_hours %}
+            unavailable
+          {% elif not wet_hours %}
+            No rain expected
+          {% else %}
+            {% set total = wet_hours | map(attribute='precipitation') | sum | round(1) %}
+            {% set first = as_timestamp(wet_hours[0].datetime) | timestamp_custom('%H:%M') %}
+            {% set last = (as_timestamp(wet_hours[-1].datetime) + 3600) | timestamp_custom('%H:%M') %}
+            {{ total }}mm {{ first }}–{{ last }}
+          {% endif %}
