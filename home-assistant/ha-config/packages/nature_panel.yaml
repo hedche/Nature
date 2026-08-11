@@ -13,12 +13,22 @@ template:
       - trigger: state
         entity_id: weather.forecast_home
     actions:
+      # The hourly forecast only contains hours still to come, so it can't
+      # give the whole day's min/max in the afternoon/evening — those come
+      # from the daily forecast instead. Hourly is kept for rain amount and
+      # timing, where forward-looking is what we want.
       - action: weather.get_forecasts
         target:
           entity_id: weather.forecast_home
         data:
           type: hourly
         response_variable: fc
+      - action: weather.get_forecasts
+        target:
+          entity_id: weather.forecast_home
+        data:
+          type: daily
+        response_variable: fc_daily
       - variables:
           today_hours: >
             {{ (fc['weather.forecast_home'].forecast | default([]))
@@ -28,19 +38,24 @@ template:
           wet_hours: >
             {{ today_hours | selectattr('precipitation', 'defined')
                | selectattr('precipitation', '>', 0.1) | list }}
+          today_daily: >
+            {% set d = (fc_daily['weather.forecast_home'].forecast | default([]))
+               | selectattr('datetime', 'lt', (today_at('00:00') + timedelta(days=1)).isoformat())
+               | list %}
+            {{ d[0] if d else (fc_daily['weather.forecast_home'].forecast | default([none]))[0] }}
     sensor:
       - name: "Panel Today Temp Min"
         unique_id: panel_today_temp_min
         unit_of_measurement: "°C"
         state: >
-          {{ (today_hours | map(attribute='temperature') | min) | round(0)
-             if today_hours else none }}
+          {{ today_daily.templow | round(0) if today_daily and today_daily.templow is defined
+             else none }}
       - name: "Panel Today Temp Max"
         unique_id: panel_today_temp_max
         unit_of_measurement: "°C"
         state: >
-          {{ (today_hours | map(attribute='temperature') | max) | round(0)
-             if today_hours else none }}
+          {{ today_daily.temperature | round(0) if today_daily and today_daily.temperature is defined
+             else none }}
       - name: "Panel Today Rain Total"
         unique_id: panel_today_rain_total
         unit_of_measurement: "mm"
