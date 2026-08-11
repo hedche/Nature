@@ -12,23 +12,17 @@ template:
         event: start
       - trigger: state
         entity_id: weather.forecast_home
+      # Midnight reset for the latched min/max (see below).
+      - trigger: time
+        at: "00:00:10"
+        id: midnight
     actions:
-      # The hourly forecast only contains hours still to come, so it can't
-      # give the whole day's min/max in the afternoon/evening — those come
-      # from the daily forecast instead. Hourly is kept for rain amount and
-      # timing, where forward-looking is what we want.
       - action: weather.get_forecasts
         target:
           entity_id: weather.forecast_home
         data:
           type: hourly
         response_variable: fc
-      - action: weather.get_forecasts
-        target:
-          entity_id: weather.forecast_home
-        data:
-          type: daily
-        response_variable: fc_daily
       - variables:
           today_hours: >
             {{ (fc['weather.forecast_home'].forecast | default([]))
@@ -38,24 +32,34 @@ template:
           wet_hours: >
             {{ today_hours | selectattr('precipitation', 'defined')
                | selectattr('precipitation', '>', 0.1) | list }}
-          today_daily: >
-            {% set d = (fc_daily['weather.forecast_home'].forecast | default([]))
-               | selectattr('datetime', 'lt', (today_at('00:00') + timedelta(days=1)).isoformat())
-               | list %}
-            {{ d[0] if d else (fc_daily['weather.forecast_home'].forecast | default([none]))[0] }}
+          # The forecast only contains hours still to come, so by evening a
+          # plain min/max over it collapses to tonight's values and forgets
+          # the afternoon peak. Candidates = remaining forecast hours plus
+          # the current observed temperature; each sensor then LATCHES
+          # against its own previous state (this.state) and resets at
+          # midnight. Trigger-based template sensors restore state, so the
+          # latch survives HA restarts.
+          temp_candidates: >
+            {% set cur = state_attr('weather.forecast_home', 'temperature') %}
+            {{ (today_hours | map(attribute='temperature') | list)
+               + ([cur] if cur is not none else []) }}
     sensor:
       - name: "Panel Today Temp Min"
         unique_id: panel_today_temp_min
         unit_of_measurement: "°C"
         state: >
-          {{ today_daily.templow | round(0) if today_daily and today_daily.templow is defined
-             else none }}
+          {% set new = (temp_candidates | min) if temp_candidates else none %}
+          {% set prev = this.state | float(none) if trigger.id != 'midnight' else none %}
+          {% set cands = ([new] if new is not none else []) + ([prev] if prev is not none else []) %}
+          {{ (cands | min) | round(0) if cands else none }}
       - name: "Panel Today Temp Max"
         unique_id: panel_today_temp_max
         unit_of_measurement: "°C"
         state: >
-          {{ today_daily.temperature | round(0) if today_daily and today_daily.temperature is defined
-             else none }}
+          {% set new = (temp_candidates | max) if temp_candidates else none %}
+          {% set prev = this.state | float(none) if trigger.id != 'midnight' else none %}
+          {% set cands = ([new] if new is not none else []) + ([prev] if prev is not none else []) %}
+          {{ (cands | max) | round(0) if cands else none }}
       - name: "Panel Today Rain Total"
         unique_id: panel_today_rain_total
         unit_of_measurement: "mm"
