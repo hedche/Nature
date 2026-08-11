@@ -11,17 +11,17 @@ template:
       - trigger: homeassistant
         event: start
       - trigger: state
-        entity_id: weather.met_office_wells
+        entity_id: weather.forecast_home
     actions:
       - action: weather.get_forecasts
         target:
-          entity_id: weather.met_office_wells
+          entity_id: weather.forecast_home
         data:
           type: hourly
         response_variable: fc
       - variables:
           today_hours: >
-            {{ (fc['weather.met_office_wells'].forecast | default([]))
+            {{ (fc['weather.forecast_home'].forecast | default([]))
                | selectattr('datetime', 'ge', today_at('00:00').isoformat())
                | selectattr('datetime', 'lt', (today_at('00:00') + timedelta(days=1)).isoformat())
                | list }}

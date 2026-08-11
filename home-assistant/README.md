@@ -56,28 +56,25 @@ see `AGENTS.md`.
 LVGL pages, swipe left/right to switch:
 
 - **Weather** — today's min/max °C, total rain (mm) and when it's
-  expected, condition icon. Fed by the Met Office integration through
-  the template sensors in `ha-config/packages/nature_panel.yaml`.
+  expected, condition icon. Fed by the built-in Met.no integration
+  (`weather.forecast_home`, no API key) through the template sensors in
+  `ha-config/packages/nature_panel.yaml`.
 - **Music** — bedroom Sonos: track/artist, prev/play-pause/next, volume.
 
 The screen dims after 45 s idle and switches off after 5 min; any touch
 wakes it. The three relay outputs (86-box mains switching) are exposed
 to HA as switches but unused.
 
-### Met Office integration (manual, one-time)
+### Weather source
 
-1. Create a free account at <https://datahub.metoffice.gov.uk> and
-   subscribe to the **Site-Specific** forecast (free tier, ~360
-   calls/day).
-2. HA → Settings → Integrations → add **Met Office**, paste the API key.
-   The home zone coordinates are used (BA5 1GU ≈ 51.209, −2.647).
-3. Check the created weather entity ID. If it isn't
-   `weather.met_office_wells`, update it in
-   `ha-config/packages/nature_panel.yaml` and in the `weather_entity`
-   substitution in `esphome/bedroom-panel.yaml`.
-4. Verify hourly rain data: Developer Tools → Actions →
-   `weather.get_forecasts` with `type: hourly` — entries should include a
-   non-null `precipitation` field (mm).
+The default Met.no (Meteorologisk institutt) integration supplies the
+forecast — no API key, uses the HA home zone coordinates, and its hourly
+forecast includes `precipitation` in mm. The entity is
+`weather.forecast_home`; if it's ever renamed, update it in
+`ha-config/packages/nature_panel.yaml` (3 places) and in the
+`weather_entity` substitution in `esphome/bedroom-panel.yaml`.
+(The Met Office DataHub integration was considered but its config flow
+failed to connect with a fresh API key; Met.no is keyless and sufficient.)
 
 ## HA config packages
 

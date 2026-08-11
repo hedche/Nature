@@ -8,7 +8,7 @@ substitutions:
   friendly_name: Bedroom Panel
   # Confirm these entity IDs in HA before flashing.
   sonos_entity: media_player.bedroom_sonos
-  weather_entity: weather.met_office_wells
+  weather_entity: weather.forecast_home
 
 esphome:
   name: ${name}
