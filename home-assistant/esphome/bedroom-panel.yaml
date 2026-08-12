@@ -104,6 +104,9 @@ globals:
   - id: touch_start_x
     type: int
     initial_value: "0"
+  - id: touch_start_y
+    type: int
+    initial_value: "0"
   - id: touch_last_x
     type: int
     initial_value: "0"
@@ -114,6 +117,7 @@ touchscreen:
     on_touch:
       - lambda: |-
           id(touch_start_x) = touch.x;
+          id(touch_start_y) = touch.y;
           id(touch_last_x) = touch.x;
       - if:
           condition: lvgl.is_paused
@@ -128,12 +132,15 @@ touchscreen:
           for (auto t : touches) id(touch_last_x) = t.x;
     # ESPHome LVGL has no swipe gesture trigger; detect it from the
     # horizontal travel between first touch and release. The 60px
-    # threshold keeps ordinary button taps from turning the page.
+    # threshold keeps ordinary button taps from turning the page, and
+    # gestures starting in the bottom band (y > 380) are ignored so
+    # dragging the volume slider doesn't read as a page swipe.
     on_release:
       - if:
           condition:
             and:
               - not: lvgl.is_paused
+              - lambda: "return id(touch_start_y) <= 380;"
               - lambda: "return id(touch_last_x) - id(touch_start_x) < -60;"
           then:
             - lvgl.page.next:
@@ -143,6 +150,7 @@ touchscreen:
           condition:
             and:
               - not: lvgl.is_paused
+              - lambda: "return id(touch_start_y) <= 380;"
               - lambda: "return id(touch_last_x) - id(touch_start_x) > 60;"
           then:
             - lvgl.page.previous:
@@ -182,6 +190,28 @@ switch:
     id: relay_3
     name: Relay 3
     restore_mode: RESTORE_DEFAULT_OFF
+
+# ---------- Album artwork download ----------
+
+http_request:
+  timeout: 10s
+
+online_image:
+  - id: album_art
+    # Placeholder; the real signed proxy URL is pushed from HA via
+    # sensor.panel_media_art and set with set_url() before each update.
+    url: "http://10.30.1.60:8123/"
+    type: RGB565
+    format: jpeg
+    resize: 140x140
+    update_interval: never
+    on_download_finished:
+      - lvgl.image.update:
+          id: img_art
+          src: album_art
+      - lvgl.widget.show: img_art
+    on_error:
+      - lvgl.widget.hide: img_art
 
 # ---------- Fonts ----------
 
@@ -282,20 +312,30 @@ text_sensor:
             return "\U000F0590";
   - platform: homeassistant
     id: media_title
-    entity_id: ${sonos_entity}
-    attribute: media_title
+    entity_id: sensor.panel_media_title
     on_value:
       - lvgl.label.update:
           id: lbl_title
           text: !lambda 'return x.empty() ? "Nothing playing" : x;'
   - platform: homeassistant
     id: media_artist
-    entity_id: ${sonos_entity}
-    attribute: media_artist
+    entity_id: sensor.panel_media_artist
     on_value:
       - lvgl.label.update:
           id: lbl_artist
           text: !lambda "return x;"
+  - platform: homeassistant
+    id: media_art_url
+    entity_id: sensor.panel_media_art
+    on_value:
+      - if:
+          condition:
+            lambda: "return x.rfind(\"http\", 0) == 0;"
+          then:
+            - lambda: "id(album_art).set_url(x);"
+            - component.update: album_art
+          else:
+            - lvgl.widget.hide: img_art
   - platform: homeassistant
     id: media_state
     entity_id: ${sonos_entity}
@@ -392,9 +432,15 @@ lvgl:
             width: 440
             text_align: CENTER
             long_mode: SCROLL_CIRCULAR
+        - image:
+            id: img_art
+            src: album_art
+            align: TOP_MID
+            y: 145
+            hidden: true
         - obj:
             align: CENTER
-            y: 30
+            y: 95
             width: SIZE_CONTENT
             height: SIZE_CONTENT
             bg_opa: TRANSP
