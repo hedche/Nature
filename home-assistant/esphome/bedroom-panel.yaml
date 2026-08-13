@@ -110,6 +110,15 @@ globals:
   - id: touch_last_x
     type: int
     initial_value: "0"
+  - id: touch_last_y
+    type: int
+    initial_value: "0"
+  - id: settings_open
+    type: bool
+    initial_value: "false"
+  - id: art_url
+    type: std::string
+    initial_value: '""'
 
 touchscreen:
   - platform: gt911
@@ -119,6 +128,7 @@ touchscreen:
           id(touch_start_x) = touch.x;
           id(touch_start_y) = touch.y;
           id(touch_last_x) = touch.x;
+          id(touch_last_y) = touch.y;
       - if:
           condition: lvgl.is_paused
           then:
@@ -129,17 +139,39 @@ touchscreen:
             - lvgl.widget.redraw:
     on_update:
       - lambda: |-
-          for (auto t : touches) id(touch_last_x) = t.x;
+          for (auto t : touches) {
+            id(touch_last_x) = t.x;
+            id(touch_last_y) = t.y;
+          }
     # ESPHome LVGL has no swipe gesture trigger; detect it from the
     # horizontal travel between first touch and release. The 60px
     # threshold keeps ordinary button taps from turning the page, and
     # gestures starting in the bottom band (y > 380) are ignored so
     # dragging the volume slider doesn't read as a page swipe.
     on_release:
+      # Swipe down from the top edge -> settings drawer.
       - if:
           condition:
             and:
               - not: lvgl.is_paused
+              - lambda: "return !id(settings_open);"
+              - lambda: "return id(touch_start_y) <= 60;"
+              - lambda: "return id(touch_last_y) - id(touch_start_y) > 70;"
+          then:
+            - script.execute: open_settings
+      # Swipe up anywhere while the drawer is open -> close it.
+      - if:
+          condition:
+            and:
+              - lambda: "return id(settings_open);"
+              - lambda: "return id(touch_start_y) - id(touch_last_y) > 70;"
+          then:
+            - script.execute: close_settings
+      - if:
+          condition:
+            and:
+              - not: lvgl.is_paused
+              - lambda: "return !id(settings_open);"
               - lambda: "return id(touch_start_y) <= 380;"
               - lambda: "return id(touch_last_x) - id(touch_start_x) < -60;"
           then:
@@ -150,6 +182,7 @@ touchscreen:
           condition:
             and:
               - not: lvgl.is_paused
+              - lambda: "return !id(settings_open);"
               - lambda: "return id(touch_start_y) <= 380;"
               - lambda: "return id(touch_last_x) - id(touch_start_x) > 60;"
           then:
@@ -172,6 +205,31 @@ light:
     output: backlight_pwm
     restore_mode: ALWAYS_ON
     default_transition_length: 250ms
+
+button:
+  - platform: restart
+    id: panel_restart
+    name: Restart
+
+script:
+  - id: open_settings
+    then:
+      - globals.set:
+          id: settings_open
+          value: "true"
+      # Reflect the actual backlight level before showing the slider.
+      - lvgl.slider.update:
+          id: brightness_slider
+          value: !lambda |-
+            return id(backlight).current_values.is_on()
+                ? id(backlight).current_values.get_brightness() * 100.0f : 0.0f;
+      - lvgl.widget.show: settings_panel
+  - id: close_settings
+    then:
+      - globals.set:
+          id: settings_open
+          value: "false"
+      - lvgl.widget.hide: settings_panel
 
 # 86-box mains relays — unused for now, exposed to HA anyway.
 switch:
@@ -196,6 +254,11 @@ switch:
 http_request:
   timeout: 10s
 
+# Sonos art is JPEG for library tracks but PNG for many radio stations,
+# and this ESPHome version (2026.7.4, pinned to the add-on) predates the
+# auto-sniffing format. So: try the JPEG decoder first and fall back to a
+# PNG decoder instance for the same URL. (Replace both with one
+# `format: AUTO` instance once the add-on ships it.)
 online_image:
   - id: album_art
     # Placeholder; the real signed proxy URL is pushed from HA via
@@ -209,6 +272,20 @@ online_image:
       - lvgl.image.update:
           id: img_art
           src: album_art
+      - lvgl.widget.show: img_art
+    on_error:
+      - lambda: "id(album_art_png).set_url(id(art_url));"
+      - component.update: album_art_png
+  - id: album_art_png
+    url: "http://10.30.1.60:8123/"
+    type: RGB565
+    format: png
+    resize: 140x140
+    update_interval: never
+    on_download_finished:
+      - lvgl.image.update:
+          id: img_art
+          src: album_art_png
       - lvgl.widget.show: img_art
     on_error:
       - lvgl.widget.hide: img_art
@@ -234,6 +311,10 @@ font:
       - "\U000F03E4" # pause
       - "\U000F04AD" # skip-next
       - "\U000F057E" # volume-high
+      - "\U000F00DE" # brightness-6
+      - "\U000F0425" # power
+      - "\U000F0709" # restart
+      - "\U000F0156" # close
   - file: "fonts/materialdesignicons-webfont.ttf"
     id: mdi_96
     size: 96
@@ -253,6 +334,13 @@ font:
 # ---------- Home Assistant imports ----------
 
 sensor:
+  - platform: wifi_signal
+    id: wifi_rssi
+    update_interval: 60s
+    on_value:
+      - lvgl.label.update:
+          id: lbl_wifi
+          text: !lambda 'return str_sprintf("WiFi %.0f dBm", x);'
   - platform: homeassistant
     id: temp_min
     entity_id: sensor.panel_today_temp_min
@@ -284,6 +372,13 @@ sensor:
           value: !lambda "return x * 100;"
 
 text_sensor:
+  - platform: wifi_info
+    ip_address:
+      id: wifi_ip
+      on_value:
+        - lvgl.label.update:
+            id: lbl_ip
+            text: !lambda "return x;"
   - platform: homeassistant
     id: rain_when
     entity_id: sensor.panel_today_rain_when
@@ -332,7 +427,9 @@ text_sensor:
           condition:
             lambda: "return x.rfind(\"http\", 0) == 0;"
           then:
-            - lambda: "id(album_art).set_url(x);"
+            - lambda: |-
+                id(art_url) = x;
+                id(album_art).set_url(x);
             - component.update: album_art
           else:
             - lvgl.widget.hide: img_art
@@ -361,6 +458,102 @@ lvgl:
         - light.turn_off: backlight
         - lvgl.pause:
             show_snow: false
+  # Settings drawer: swipe down from the top edge to open, swipe up or
+  # Close to dismiss. Lives on the top layer so it overlays either page.
+  top_layer:
+    widgets:
+      - obj:
+          id: settings_panel
+          hidden: true
+          align: TOP_MID
+          width: 480
+          height: 320
+          bg_color: 0x14181D
+          border_width: 0
+          radius: 0
+          pad_all: 24
+          widgets:
+            - label:
+                text: "Settings"
+                text_font: font_med
+                text_color: 0xFFFFFF
+                align: TOP_LEFT
+            - button:
+                align: TOP_RIGHT
+                width: 56
+                height: 56
+                radius: 28
+                widgets:
+                  - label:
+                      text: "\U000F0156" # close
+                      text_font: mdi_42
+                      align: CENTER
+                on_click:
+                  - script.execute: close_settings
+            - label:
+                text: "\U000F00DE" # brightness
+                text_font: mdi_42
+                text_color: 0xB0B0B0
+                align: LEFT_MID
+                y: -20
+            - slider:
+                id: brightness_slider
+                align: LEFT_MID
+                x: 70
+                y: -20
+                width: 330
+                height: 14
+                min_value: 5
+                max_value: 100
+                on_value:
+                  - light.turn_on:
+                      id: backlight
+                      brightness: !lambda "return x / 100.0;"
+            - button:
+                align: BOTTOM_LEFT
+                width: 130
+                height: 64
+                widgets:
+                  - label:
+                      text: "\U000F0425" # power -> screen off
+                      text_font: mdi_42
+                      align: CENTER
+                on_click:
+                  - script.execute: close_settings
+                  - light.turn_off: backlight
+                  - lvgl.pause:
+                      show_snow: false
+            - button:
+                align: BOTTOM_MID
+                width: 130
+                height: 64
+                widgets:
+                  - label:
+                      text: "\U000F0709" # restart
+                      text_font: mdi_42
+                      align: CENTER
+                on_click:
+                  - button.press: panel_restart
+            - obj:
+                align: BOTTOM_RIGHT
+                width: 150
+                height: 64
+                bg_opa: TRANSP
+                border_width: 0
+                pad_all: 0
+                widgets:
+                  - label:
+                      id: lbl_wifi
+                      text: "WiFi --"
+                      text_font: font_small
+                      text_color: 0x808080
+                      align: TOP_RIGHT
+                  - label:
+                      id: lbl_ip
+                      text: "--"
+                      text_font: font_small
+                      text_color: 0x808080
+                      align: BOTTOM_RIGHT
   pages:
     - id: weather_page
       bg_color: 0x000000

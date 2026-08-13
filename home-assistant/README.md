@@ -59,7 +59,12 @@ LVGL pages, swipe left/right to switch:
   expected, condition icon. Fed by the built-in Met.no integration
   (`weather.forecast_home`, no API key) through the template sensors in
   `ha-config/packages/nature_panel.yaml`.
-- **Music** — bedroom Sonos: track/artist, prev/play-pause/next, volume.
+- **Music** — bedroom Sonos: track/artist (with stream/filename
+  fallbacks), album art (JPEG/PNG via HA's image proxy), prev/play-pause/
+  next, volume.
+
+Swipe down from the top edge for the settings drawer: brightness
+slider, screen off, restart, wifi signal/IP. Swipe up or tap ✕ to close.
 
 The screen dims after 45 s idle and switches off after 5 min; any touch
 wakes it. The three relay outputs (86-box mains switching) are exposed
