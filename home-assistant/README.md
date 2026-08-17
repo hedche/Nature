@@ -7,7 +7,10 @@ holds the parts that are repo-managed:
 ```
 esphome/                  ESPHome device configs, built/flashed from the Mac
   bedroom-panel.yaml      Guition ESP32-S3-4848S040 4" touch panel (weather + Sonos)
+  bedroom-panel-sim.yaml  The same UI in a desktop SDL window, fed mock data
+  packages/panel-ui.yaml  The screen itself, shared by the panel and the simulator
   run.sh                  Renders secrets, wraps the esphome CLI
+  sim.sh                  Runs / screenshots the simulator
 ha-config/
   packages/               HA config packages deployed to /config/packages/
     nature_panel.yaml     Template sensors feeding the bedroom panel
@@ -49,6 +52,29 @@ ignored.
 
 Do not adopt repo-managed devices into the ESPHome add-on dashboard —
 see `AGENTS.md`.
+
+### Simulating the panel UI
+
+The panel's screen lives in `packages/panel-ui.yaml`, which both the real
+device and `bedroom-panel-sim.yaml` include. The simulator compiles that
+same UI into a native macOS binary that draws into an SDL window — real
+LVGL, real fonts, real layout — so a change can be seen in ~15s instead of
+a 4-minute build and an OTA.
+
+```sh
+brew install sdl2                              # one-time
+cd home-assistant/esphome
+./sim.sh                                       # open the window (Ctrl-C quits)
+./sim.sh shot out.png                          # capture one frame and exit
+./sim.sh shot music.png -s sim_page music_page # any sim_* value can be overridden
+```
+
+`shot` needs Screen Recording permission for your terminal (System
+Settings → Privacy & Security → Screen Recording).
+
+It renders the framebuffer and nothing else: backlight brightness, panel
+tearing, PSRAM limits and the real touch digitiser are all invisible here
+and still need checking on the wall.
 
 ## Bedroom panel (Guition ESP32-S3-4848S040)
 

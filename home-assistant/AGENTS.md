@@ -21,6 +21,36 @@ config packages. Global secrets rules in the root `AGENTS.md` apply.
 - Entity IDs and device names go in `substitutions:` at the top of each
   device YAML, not inline in lambdas/widgets.
 
+### Bedroom panel — verify in the simulator before flashing
+
+The panel's screen is split so the same UI runs on the Mac as on the wall:
+
+| File | What it holds |
+|------|---------------|
+| `esphome/packages/panel-ui.yaml` | The UI itself: globals, gesture scripts, `ui_*` data scripts, fonts, LVGL. No hardware, no data sources. |
+| `esphome/bedroom-panel.yaml` | The real Guition 4848S040: hardware, plus the Home Assistant sensors that feed it. |
+| `esphome/bedroom-panel-sim.yaml` | The same UI on an SDL window, fed mock `sim_*` values. |
+
+- **Any change to `packages/panel-ui.yaml` must be checked in the simulator
+  before it is flashed.** `./sim.sh shot out.png` compiles and captures a PNG
+  of the actual rendered screen in ~15s (vs ~4min + an OTA) — then look at the
+  PNG. `./sim.sh` on its own opens the window interactively.
+- Data reaches the UI **only** through the `ui_*` scripts. A new value means:
+  add a `ui_*` script in the UI package, then call it from *both*
+  `bedroom-panel.yaml` (a sensor's `on_value`) and `bedroom-panel-sim.yaml`
+  (its `on_boot` block). Skip the sim side and the simulator quietly renders a
+  stale screen — that divergence is the main failure mode of this split.
+- The two targets must keep providing the IDs the UI package addresses:
+  `lcd`, `panel_touch`, `backlight`, `panel_restart`, and `${sonos_entity}`.
+- Exercise edge cases with substitutions, not by editing files:
+  `./sim.sh shot long.png -s sim_media_title "a 90-character track name…"`.
+- **What the simulator cannot tell you:** it renders LVGL's framebuffer, so it
+  has nothing to say about backlight brightness (the `backlight` output is a
+  logging stub), RGB panel tearing, PSRAM pressure, boot behaviour or the real
+  touch digitiser. Those still need the panel on the wall.
+- `sim.sh` needs SDL2 (`brew install sdl2`); `shot` also needs Screen Recording
+  permission for your terminal.
+
 ## HA config packages (`ha-config/`)
 
 - `ha-config/packages/*.yaml` are HA "packages" deployed to

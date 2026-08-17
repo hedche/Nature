@@ -43,4 +43,4 @@ The nearest `AGENTS.md` to the files being edited takes precedence. Read the rel
 | `oracle/AGENTS.md` | OCI Terraform caveats (**do not `terraform apply` casually**) |
 | `proxmox/AGENTS.md` | Proxmox VM Terraform, physical disk passthrough |
 | `hermes/AGENTS.md` | Media stack (VPN boundary, Tailscale × Docker gotcha) |
-| `home-assistant/AGENTS.md` | ESPHome devices (secrets rendering, build on the Mac — never the Pi), HA config packages |
+| `home-assistant/AGENTS.md` | ESPHome devices (secrets rendering, build on the Mac — never the Pi; **verify panel UI changes in the SDL simulator before flashing**), HA config packages |

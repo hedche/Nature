@@ -54,6 +54,12 @@ time:
   - platform: homeassistant
     id: ha_time
 
+# Everything on the screen lives in the shared UI package, which the SDL
+# simulator (bedroom-panel-sim.yaml) includes too. This file is the hardware
+# and the live data feeding it — see packages/panel-ui.yaml for the contract.
+packages:
+  ui: !include packages/panel-ui.yaml
+
 # ---------- Display / touch hardware ----------
 
 spi:
@@ -100,118 +106,22 @@ i2c:
       number: 45
       ignore_strapping_warning: true
 
-globals:
-  - id: touch_start_x
-    type: int
-    initial_value: "0"
-  - id: touch_start_y
-    type: int
-    initial_value: "0"
-  - id: touch_last_x
-    type: int
-    initial_value: "0"
-  - id: touch_last_y
-    type: int
-    initial_value: "0"
-  - id: settings_open
-    type: bool
-    initial_value: "false"
-  # Brightness the user last chose, so waking from the idle dim restores it
-  # instead of stranding the panel at the dim level.
-  - id: user_brightness
-    type: float
-    initial_value: "0.8"
-  - id: idle_dimmed
-    type: bool
-    initial_value: "false"
-  - id: art_url
-    type: std::string
-    initial_value: '""'
-
+# Gesture logic lives in the UI package so the simulator behaves identically.
 touchscreen:
   - platform: gt911
     id: panel_touch
     on_touch:
-      - lambda: |-
-          id(touch_start_x) = touch.x;
-          id(touch_start_y) = touch.y;
-          id(touch_last_x) = touch.x;
-          id(touch_last_y) = touch.y;
-      - if:
-          condition: lvgl.is_paused
-          then:
-            - light.turn_on:
-                id: backlight
-                brightness: !lambda "return id(user_brightness);"
-            - globals.set:
-                id: idle_dimmed
-                value: "false"
-            - lvgl.resume:
-            - lvgl.widget.redraw:
-      # Screen still running but dimmed by the idle timeout: first touch just
-      # brings the brightness back rather than acting on whatever it landed on.
-      - if:
-          condition:
-            lambda: "return id(idle_dimmed);"
-          then:
-            - light.turn_on:
-                id: backlight
-                brightness: !lambda "return id(user_brightness);"
-            - globals.set:
-                id: idle_dimmed
-                value: "false"
+      - script.execute:
+          id: touch_begin
+          x: !lambda "return touch.x;"
+          y: !lambda "return touch.y;"
     on_update:
       - lambda: |-
           for (auto t : touches) {
-            id(touch_last_x) = t.x;
-            id(touch_last_y) = t.y;
+            id(touch_move)->execute(t.x, t.y);
           }
-    # ESPHome LVGL has no swipe gesture trigger; detect it from the
-    # horizontal travel between first touch and release. The 60px
-    # threshold keeps ordinary button taps from turning the page, and
-    # gestures starting in the bottom band (y > 380) are ignored so
-    # dragging the volume slider doesn't read as a page swipe.
     on_release:
-      # Swipe down from the top edge -> settings drawer.
-      - if:
-          condition:
-            and:
-              - not: lvgl.is_paused
-              - lambda: "return !id(settings_open);"
-              - lambda: "return id(touch_start_y) <= 60;"
-              - lambda: "return id(touch_last_y) - id(touch_start_y) > 70;"
-          then:
-            - script.execute: open_settings
-      # Swipe up anywhere while the drawer is open -> close it.
-      - if:
-          condition:
-            and:
-              - lambda: "return id(settings_open);"
-              - lambda: "return id(touch_start_y) - id(touch_last_y) > 70;"
-          then:
-            - script.execute: close_settings
-      - if:
-          condition:
-            and:
-              - not: lvgl.is_paused
-              - lambda: "return !id(settings_open);"
-              - lambda: "return id(touch_start_y) <= 380;"
-              - lambda: "return id(touch_last_x) - id(touch_start_x) < -60;"
-          then:
-            - lvgl.page.next:
-                animation: OUT_LEFT
-                time: 250ms
-      - if:
-          condition:
-            and:
-              - not: lvgl.is_paused
-              - lambda: "return !id(settings_open);"
-              - lambda: "return id(touch_start_y) <= 380;"
-              - lambda: "return id(touch_last_x) - id(touch_start_x) > 60;"
-          then:
-            - lvgl.page.previous:
-                animation: OUT_RIGHT
-                time: 250ms
+      - script.execute: touch_end
 
 # ---------- Backlight / relays ----------
 
@@ -234,26 +144,6 @@ button:
     id: panel_restart
     name: Restart
 
-script:
-  - id: open_settings
-    then:
-      - globals.set:
-          id: settings_open
-          value: "true"
-      # Reflect the chosen backlight level before showing the slider. Use the
-      # stored value, not the live one, so opening it while idle-dimmed does
-      # not snap the slider (and the screen) down to the dim level.
-      - lvgl.slider.update:
-          id: brightness_slider
-          value: !lambda "return id(user_brightness) * 100.0f;"
-      - lvgl.widget.show: settings_panel
-  - id: close_settings
-    then:
-      - globals.set:
-          id: settings_open
-          value: "false"
-      - lvgl.widget.hide: settings_panel
-
 # 86-box mains relays — unused for now, exposed to HA anyway.
 switch:
   - platform: gpio
@@ -272,479 +162,97 @@ switch:
     name: Relay 3
     restore_mode: RESTORE_DEFAULT_OFF
 
-# ---------- Album artwork download ----------
-
-http_request:
-  timeout: 10s
-
-# Sonos art is JPEG for library tracks but PNG for many radio stations,
-# and this ESPHome version (2026.7.4, pinned to the add-on) predates the
-# auto-sniffing format. So: try the JPEG decoder first and fall back to a
-# PNG decoder instance for the same URL. (Replace both with one
-# `format: AUTO` instance once the add-on ships it.)
-online_image:
-  - id: album_art
-    # Placeholder; the real signed proxy URL is pushed from HA via
-    # sensor.panel_media_art and set with set_url() before each update.
-    url: "http://10.30.1.60:8123/"
-    type: RGB565
-    format: jpeg
-    resize: 140x140
-    update_interval: never
-    on_download_finished:
-      - lvgl.image.update:
-          id: img_art
-          src: album_art
-      - lvgl.widget.show: img_art
-    on_error:
-      - lambda: "id(album_art_png).set_url(id(art_url));"
-      - component.update: album_art_png
-  - id: album_art_png
-    url: "http://10.30.1.60:8123/"
-    type: RGB565
-    format: png
-    resize: 140x140
-    update_interval: never
-    on_download_finished:
-      - lvgl.image.update:
-          id: img_art
-          src: album_art_png
-      - lvgl.widget.show: img_art
-    on_error:
-      - lvgl.widget.hide: img_art
-
-# ---------- Fonts ----------
-
-font:
-  - file: "gfonts://Roboto"
-    id: font_small
-    size: 22
-  - file: "gfonts://Roboto"
-    id: font_med
-    size: 32
-  - file: "gfonts://Roboto@700"
-    id: font_big
-    size: 72
-  - file: "fonts/materialdesignicons-webfont.ttf"
-    id: mdi_42
-    size: 42
-    glyphs:
-      - "\U000F04AE" # skip-previous
-      - "\U000F040A" # play
-      - "\U000F03E4" # pause
-      - "\U000F04AD" # skip-next
-      - "\U000F057E" # volume-high
-      - "\U000F00DE" # brightness-6
-      - "\U000F0425" # power
-      - "\U000F0709" # restart
-      - "\U000F0156" # close
-  - file: "fonts/materialdesignicons-webfont.ttf"
-    id: mdi_96
-    size: 96
-    glyphs:
-      - "\U000F0599" # weather-sunny
-      - "\U000F0595" # weather-partly-cloudy
-      - "\U000F0590" # weather-cloudy
-      - "\U000F0591" # weather-fog
-      - "\U000F0593" # weather-lightning
-      - "\U000F067E" # weather-lightning-rainy
-      - "\U000F0596" # weather-pouring
-      - "\U000F0597" # weather-rainy
-      - "\U000F0598" # weather-snowy
-      - "\U000F0594" # weather-night
-      - "\U000F059D" # weather-windy
-
-# ---------- Home Assistant imports ----------
+# ---------- Live data from Home Assistant ----------
+# Thin adapters: every one of these just forwards its value to the matching
+# ui_* script in packages/panel-ui.yaml, which owns all the formatting. The
+# simulator swaps this section for mock values and gets an identical screen.
 
 sensor:
   - platform: wifi_signal
     id: wifi_rssi
     update_interval: 60s
     on_value:
-      - lvgl.label.update:
-          id: lbl_wifi
-          text: !lambda 'return str_sprintf("WiFi %.0f dBm", x);'
+      - script.execute:
+          id: ui_net_rssi
+          x: !lambda "return x;"
   - platform: homeassistant
     id: temp_min
     entity_id: sensor.panel_today_temp_min
     on_value:
-      - lvgl.label.update:
-          id: lbl_min
-          text: !lambda 'return str_sprintf("%.0f°", x);'
+      - script.execute:
+          id: ui_temp_min
+          x: !lambda "return x;"
   - platform: homeassistant
     id: temp_max
     entity_id: sensor.panel_today_temp_max
     on_value:
-      - lvgl.label.update:
-          id: lbl_max
-          text: !lambda 'return str_sprintf("%.0f°", x);'
+      - script.execute:
+          id: ui_temp_max
+          x: !lambda "return x;"
   - platform: homeassistant
     id: rain_mm
     entity_id: sensor.panel_today_rain_total
     on_value:
-      - lvgl.label.update:
-          id: lbl_rain_mm
-          text: !lambda 'return str_sprintf("%.1f mm rain today", x);'
+      - script.execute:
+          id: ui_rain_mm
+          x: !lambda "return x;"
+  # 0..1 from HA; ui_volume scales it to the 0..100 slider.
   - platform: homeassistant
     id: sonos_volume
     entity_id: ${sonos_entity}
     attribute: volume_level
     on_value:
-      - lvgl.slider.update:
-          id: vol_slider
-          value: !lambda "return x * 100;"
+      - script.execute:
+          id: ui_volume
+          x: !lambda "return x;"
 
 text_sensor:
   - platform: wifi_info
     ip_address:
       id: wifi_ip
       on_value:
-        - lvgl.label.update:
-            id: lbl_ip
-            text: !lambda "return x;"
+        - script.execute:
+            id: ui_net_ip
+            x: !lambda "return x;"
   - platform: homeassistant
     id: rain_when
     entity_id: sensor.panel_today_rain_when
     on_value:
-      - lvgl.label.update:
-          id: lbl_rain_when
-          text: !lambda "return x;"
+      - script.execute:
+          id: ui_rain_when
+          x: !lambda "return x;"
   - platform: homeassistant
     id: weather_cond
     entity_id: ${weather_entity}
     on_value:
-      - lvgl.label.update:
-          id: lbl_weather_icon
-          text: !lambda |-
-            if (x == "sunny") return "\U000F0599";
-            if (x == "partlycloudy") return "\U000F0595";
-            if (x == "cloudy") return "\U000F0590";
-            if (x == "fog") return "\U000F0591";
-            if (x == "lightning") return "\U000F0593";
-            if (x == "lightning-rainy") return "\U000F067E";
-            if (x == "pouring") return "\U000F0596";
-            if (x == "rainy" || x == "hail") return "\U000F0597";
-            if (x == "snowy" || x == "snowy-rainy") return "\U000F0598";
-            if (x == "clear-night") return "\U000F0594";
-            if (x == "windy" || x == "windy-variant") return "\U000F059D";
-            return "\U000F0590";
+      - script.execute:
+          id: ui_weather
+          x: !lambda "return x;"
   - platform: homeassistant
     id: media_title
     entity_id: sensor.panel_media_title
     on_value:
-      - lvgl.label.update:
-          id: lbl_title
-          text: !lambda 'return x.empty() ? "Nothing playing" : x;'
+      - script.execute:
+          id: ui_media_title
+          x: !lambda "return x;"
   - platform: homeassistant
     id: media_artist
     entity_id: sensor.panel_media_artist
     on_value:
-      - lvgl.label.update:
-          id: lbl_artist
-          text: !lambda "return x;"
+      - script.execute:
+          id: ui_media_artist
+          x: !lambda "return x;"
   - platform: homeassistant
     id: media_art_url
     entity_id: sensor.panel_media_art
     on_value:
-      - if:
-          condition:
-            lambda: "return x.rfind(\"http\", 0) == 0;"
-          then:
-            - lambda: |-
-                id(art_url) = x;
-                id(album_art).set_url(x);
-            - component.update: album_art
-          else:
-            - lvgl.widget.hide: img_art
+      - script.execute:
+          id: ui_media_art
+          x: !lambda "return x;"
   - platform: homeassistant
     id: media_state
     entity_id: ${sonos_entity}
     on_value:
-      - lvgl.label.update:
-          id: lbl_play_pause
-          text: !lambda 'return std::string(x == "playing" ? "\U000F03E4" : "\U000F040A");'
-
-# ---------- UI ----------
-
-lvgl:
-  buffer_size: 25%
-  displays: [lcd]
-  touchscreens: [panel_touch]
-  on_idle:
-    - timeout: 45s
-      then:
-        - light.turn_on:
-            id: backlight
-            brightness: 25%
-        - globals.set:
-            id: idle_dimmed
-            value: "true"
-    - timeout: 5min
-      then:
-        - light.turn_off: backlight
-        - globals.set:
-            id: idle_dimmed
-            value: "false"
-        - lvgl.pause:
-            show_snow: false
-  # Settings drawer: swipe down from the top edge to open, swipe up or
-  # Close to dismiss. Lives on the top layer so it overlays either page.
-  top_layer:
-    widgets:
-      - obj:
-          id: settings_panel
-          hidden: true
-          align: TOP_MID
-          width: 480
-          height: 320
-          bg_color: 0x14181D
-          border_width: 0
-          radius: 0
-          pad_all: 24
-          widgets:
-            - label:
-                text: "Settings"
-                text_font: font_med
-                text_color: 0xFFFFFF
-                align: TOP_LEFT
-            - button:
-                align: TOP_RIGHT
-                width: 56
-                height: 56
-                radius: 28
-                widgets:
-                  - label:
-                      text: "\U000F0156" # close
-                      text_font: mdi_42
-                      align: CENTER
-                on_click:
-                  - script.execute: close_settings
-            - label:
-                text: "\U000F00DE" # brightness
-                text_font: mdi_42
-                text_color: 0xB0B0B0
-                align: LEFT_MID
-                y: -20
-            - slider:
-                id: brightness_slider
-                align: LEFT_MID
-                x: 70
-                y: -20
-                width: 330
-                height: 14
-                # 25% is the lowest duty that is still clearly readable on
-                # this panel — anything under it looks like the screen is off.
-                min_value: 25
-                max_value: 100
-                on_value:
-                  - globals.set:
-                      id: user_brightness
-                      value: !lambda "return x / 100.0f;"
-                  - globals.set:
-                      id: idle_dimmed
-                      value: "false"
-                  - light.turn_on:
-                      id: backlight
-                      brightness: !lambda "return x / 100.0;"
-            - button:
-                align: BOTTOM_LEFT
-                width: 130
-                height: 64
-                widgets:
-                  - label:
-                      text: "\U000F0425" # power -> screen off
-                      text_font: mdi_42
-                      align: CENTER
-                on_click:
-                  - script.execute: close_settings
-                  - light.turn_off: backlight
-                  - lvgl.pause:
-                      show_snow: false
-            - button:
-                align: BOTTOM_MID
-                width: 130
-                height: 64
-                widgets:
-                  - label:
-                      text: "\U000F0709" # restart
-                      text_font: mdi_42
-                      align: CENTER
-                on_click:
-                  - button.press: panel_restart
-            - obj:
-                align: BOTTOM_RIGHT
-                width: 150
-                height: 64
-                bg_opa: TRANSP
-                border_width: 0
-                pad_all: 0
-                widgets:
-                  - label:
-                      id: lbl_wifi
-                      text: "WiFi --"
-                      text_font: font_small
-                      text_color: 0x808080
-                      align: TOP_RIGHT
-                  - label:
-                      id: lbl_ip
-                      text: "--"
-                      text_font: font_small
-                      text_color: 0x808080
-                      align: BOTTOM_RIGHT
-  pages:
-    - id: weather_page
-      bg_color: 0x000000
-      widgets:
-        - label:
-            id: lbl_weather_icon
-            text: "\U000F0590"
-            text_font: mdi_96
-            text_color: 0xE0E0E0
-            align: TOP_MID
-            y: 30
-        - obj:
-            align: CENTER
-            y: 10
-            width: SIZE_CONTENT
-            height: SIZE_CONTENT
-            bg_opa: TRANSP
-            border_width: 0
-            pad_all: 0
-            layout:
-              type: flex
-              flex_flow: ROW
-              pad_column: 40
-            widgets:
-              - label:
-                  id: lbl_min
-                  text: "--°"
-                  text_font: font_big
-                  text_color: 0x4FA8FF
-              - label:
-                  id: lbl_max
-                  text: "--°"
-                  text_font: font_big
-                  text_color: 0xFF8C42
-        - label:
-            id: lbl_rain_mm
-            text: "-- mm"
-            text_font: font_med
-            text_color: 0xB0C4DE
-            align: BOTTOM_MID
-            y: -85
-        - label:
-            id: lbl_rain_when
-            text: "..."
-            text_font: font_small
-            text_color: 0x808080
-            align: BOTTOM_MID
-            y: -40
-    - id: music_page
-      bg_color: 0x000000
-      widgets:
-        - label:
-            id: lbl_title
-            text: "Nothing playing"
-            text_font: font_med
-            text_color: 0xFFFFFF
-            align: TOP_MID
-            y: 60
-            width: 440
-            text_align: CENTER
-            long_mode: SCROLL_CIRCULAR
-        - label:
-            id: lbl_artist
-            text: ""
-            text_font: font_small
-            text_color: 0xA0A0A0
-            align: TOP_MID
-            y: 110
-            width: 440
-            text_align: CENTER
-            long_mode: SCROLL_CIRCULAR
-        - image:
-            id: img_art
-            src: album_art
-            align: TOP_MID
-            y: 145
-            hidden: true
-        - obj:
-            align: CENTER
-            y: 95
-            width: SIZE_CONTENT
-            height: SIZE_CONTENT
-            bg_opa: TRANSP
-            border_width: 0
-            pad_all: 0
-            layout:
-              type: flex
-              flex_flow: ROW
-              pad_column: 35
-            widgets:
-              - button:
-                  width: 90
-                  height: 90
-                  radius: 45
-                  widgets:
-                    - label:
-                        text: "\U000F04AE"
-                        text_font: mdi_42
-                        align: CENTER
-                  on_click:
-                    - homeassistant.action:
-                        action: media_player.media_previous_track
-                        data:
-                          entity_id: ${sonos_entity}
-              - button:
-                  width: 90
-                  height: 90
-                  radius: 45
-                  widgets:
-                    - label:
-                        id: lbl_play_pause
-                        text: "\U000F040A"
-                        text_font: mdi_42
-                        align: CENTER
-                  on_click:
-                    - homeassistant.action:
-                        action: media_player.media_play_pause
-                        data:
-                          entity_id: ${sonos_entity}
-              - button:
-                  width: 90
-                  height: 90
-                  radius: 45
-                  widgets:
-                    - label:
-                        text: "\U000F04AD"
-                        text_font: mdi_42
-                        align: CENTER
-                  on_click:
-                    - homeassistant.action:
-                        action: media_player.media_next_track
-                        data:
-                          entity_id: ${sonos_entity}
-        - label:
-            text: "\U000F057E"
-            text_font: mdi_42
-            text_color: 0xA0A0A0
-            align: BOTTOM_LEFT
-            x: 20
-            y: -42
-        - slider:
-            id: vol_slider
-            align: BOTTOM_MID
-            x: 25
-            y: -55
-            width: 370
-            height: 12
-            min_value: 0
-            max_value: 100
-            # on_release (not on_value) so HA volume updates pushed into the
-            # slider don't echo straight back as volume_set calls.
-            on_release:
-              - homeassistant.action:
-                  action: media_player.volume_set
-                  data:
-                    entity_id: ${sonos_entity}
-                    volume_level: !lambda "return x / 100.0;"
+      - script.execute:
+          id: ui_media_state
+          x: !lambda "return x;"
