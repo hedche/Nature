@@ -44,6 +44,14 @@ The panel's screen is split so the same UI runs on the Mac as on the wall:
   `lcd`, `panel_touch`, `backlight`, `panel_restart`, and `${sonos_entity}`.
 - Exercise edge cases with substitutions, not by editing files:
   `./sim.sh shot long.png -s sim_media_title "a 90-character track name…"`.
+- Two states are reachable only via a substitution, and both are easy to
+  assume are untestable:
+  - `-s sim_drawer true` opens the settings drawer. It lives on the LVGL top
+    layer rather than being a page, so `sim_page` cannot select it and
+    `./sim.sh shot` would otherwise never photograph it.
+  - `-s sim_temp_min NAN` (uppercase — lowercase `nan` will not compile)
+    reproduces an unavailable Home Assistant sensor, which is what the panel
+    shows after every HA restart.
 - **What the simulator cannot tell you:** it renders LVGL's framebuffer, so it
   has nothing to say about backlight brightness (the `backlight` output is a
   logging stub), RGB panel tearing, PSRAM pressure, boot behaviour or the real
