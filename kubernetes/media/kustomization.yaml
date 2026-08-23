@@ -13,7 +13,7 @@ images:
   - name: lscr.io/linuxserver/sonarr
     newTag: 4.0.19.2979-ls322 # {"$imagepolicy": "flux-system:sonarr:tag"}
   - name: lscr.io/linuxserver/radarr
-    newTag: 6.3.0.10514-ls313 # {"$imagepolicy": "flux-system:radarr:tag"}
+    newTag: 6.3.0.10514-ls314 # {"$imagepolicy": "flux-system:radarr:tag"}
   - name: lscr.io/linuxserver/prowlarr
     newTag: 2.5.2.5491-ls156 # {"$imagepolicy": "flux-system:prowlarr:tag"}
   - name: ghcr.io/flaresolverr/flaresolverr
