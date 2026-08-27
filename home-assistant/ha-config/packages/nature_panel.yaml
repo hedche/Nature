@@ -34,12 +34,25 @@ template:
           # timestamps is offset- and format-agnostic.
           day_start: "{{ as_timestamp(today_at('00:00')) }}"
           day_end: "{{ as_timestamp(today_at('00:00') + timedelta(days=1)) }}"
-          today_hours: >
+          day_after: "{{ as_timestamp(today_at('00:00') + timedelta(days=2)) }}"
+          # Today AND tomorrow, in forecast order. The rain line looks into
+          # tomorrow once today's rain is done (see the "when" sensor); the
+          # day after that is deliberately out of scope — at that range the
+          # panel would be reporting weather nobody is dressing for yet.
+          soon_hours: >
             {% set ns = namespace(hours=[]) %}
             {% for h in (fc['weather.forecast_home'].forecast | default([])) %}
               {% if h.datetime is defined
                     and as_timestamp(h.datetime) >= day_start
-                    and as_timestamp(h.datetime) < day_end %}
+                    and as_timestamp(h.datetime) < day_after %}
+                {% set ns.hours = ns.hours + [h] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.hours }}
+          today_hours: >
+            {% set ns = namespace(hours=[]) %}
+            {% for h in soon_hours %}
+              {% if as_timestamp(h.datetime) < day_end %}
                 {% set ns.hours = ns.hours + [h] %}
               {% endif %}
             {% endfor %}
@@ -52,6 +65,12 @@ template:
           # comparison against hours that carry a null precipitation.
           wet_hours: >
             {{ today_hours | selectattr('precipitation', 'defined')
+               | selectattr('precipitation', 'is_number')
+               | selectattr('precipitation', '>', 0) | list }}
+          # Same, but through the end of tomorrow — only the "when" line
+          # uses this. The mm total stays strictly today's.
+          wet_soon: >
+            {{ soon_hours | selectattr('precipitation', 'defined')
                | selectattr('precipitation', 'is_number')
                | selectattr('precipitation', '>', 0) | list }}
           # The forecast only contains hours still to come, so by evening a
@@ -106,30 +125,44 @@ template:
           {{ (cands | max) | round(2) if cands else none }}
       # String sensor (no unit): compact "when is the next rain" line for
       # the panel — e.g. "Next: 0.4mm 18:00–20:00", "Raining: 1.2mm to
-      # 16:00", "No more rain today" or "No rain expected".
+      # 16:00", "Tomorrow: 2.1mm 09:00–13:00", "No more rain today" or
+      # "No rain expected".
       #
-      # wet_hours is split into RUNS of consecutive forecast steps and the
+      # wet_soon is split into RUNS of consecutive forecast steps and the
       # line describes the run that is still to come (or in progress). It
       # used to print first-wet-hour–last-wet-hour across the whole day,
       # which merged a shower that had already passed with one due in the
       # evening into a single misleading "01:00–20:00" span. The mm sensor
       # above answers "how wet is today" (latched, whole-day); this line
       # answers "when next", which is the other half of the question.
+      #
+      # It looks a day ahead, because the hourly forecast only contains
+      # hours still to come: after a wet morning there are no wet hours
+      # left in today, so a today-only version printed "No rain expected"
+      # directly under a latched "16.2 mm rain today". Once today has no
+      # rain left the line rolls onto tomorrow's first wet run; nothing
+      # beyond tomorrow is ever shown. When neither day is wet, the
+      # latched total decides between "No more rain today" (it already
+      # rained) and "No rain expected" (it never will).
       - name: "Panel Today Rain When"
         unique_id: panel_today_rain_when
         state: >
+          {% set rained = states('sensor.panel_today_rain_total') | float(0) > 0 %}
+          {% set nothing = 'No more rain today' if rained else 'No rain expected' %}
           {% if not today_hours %}
             unavailable
-          {% elif not wet_hours %}
-            No rain expected
+          {% elif not wet_soon %}
+            {{ nothing }}
           {% else %}
-            {# Forecast granularity, rather than assuming hourly: it also
-               sets how long the final wet step of a run lasts. #}
+            {# Forecast granularity, rather than assuming hourly. Only used
+               as a fallback for the end of the last run: met.no thins the
+               forecast to multi-hour steps further out, so run ends are
+               taken from the next forecast entry where there is one. #}
             {% set step = (as_timestamp(today_hours[1].datetime)
                            - as_timestamp(today_hours[0].datetime))
                           if today_hours | count > 1 else 3600 %}
             {% set ns = namespace(runs=[], cur=[]) %}
-            {% for h in wet_hours %}
+            {% for h in wet_soon %}
               {% if ns.cur and (as_timestamp(h.datetime)
                                 - as_timestamp(ns.cur[-1].datetime)) > step %}
                 {% set ns.runs = ns.runs + [ns.cur] %}
@@ -148,16 +181,28 @@ template:
               {% endif %}
             {% endfor %}
             {% if sel.run is none %}
-              No more rain today
+              {{ nothing }}
             {% else %}
               {% set total = sel.run | map(attribute='precipitation') | sum %}
               {% set amount = '<0.1mm' if total < 0.05 else (total | round(1) ~ 'mm') %}
               {% set start = as_timestamp(sel.run[0].datetime) %}
-              {% set end = (as_timestamp(sel.run[-1].datetime) + step) | timestamp_custom('%H:%M') %}
+              {% set last = as_timestamp(sel.run[-1].datetime) %}
+              {# The run's end is the start of the next forecast entry, so a
+                 6-hourly block is not reported as one hour long. #}
+              {% set en = namespace(ts=none) %}
+              {% for h in soon_hours %}
+                {% if en.ts is none and as_timestamp(h.datetime) > last %}
+                  {% set en.ts = as_timestamp(h.datetime) %}
+                {% endif %}
+              {% endfor %}
+              {% set end = (en.ts if en.ts is not none else last + step)
+                           | timestamp_custom('%H:%M') %}
               {% if start <= as_timestamp(now()) %}
                 Raining: {{ amount }} to {{ end }}
-              {% else %}
+              {% elif start < day_end %}
                 Next: {{ amount }} {{ start | timestamp_custom('%H:%M') }}–{{ end }}
+              {% else %}
+                Tomorrow: {{ amount }} {{ start | timestamp_custom('%H:%M') }}–{{ end }}
               {% endif %}
             {% endif %}
           {% endif %}

@@ -86,11 +86,22 @@ LVGL pages, swipe left/right to switch:
   next spell of rain, condition icon. Fed by the built-in Met.no
   integration (`weather.forecast_home`, no API key) through the template
   sensors in `ha-config/packages/nature_panel.yaml`. The rain line splits
-  the day's wet hours into runs and describes the one still to come —
-  `Next: 0.4mm 18:00–20:00`, `Raining: 1.2mm to 16:00`, `No more rain
-  today` or `No rain expected` — so a shower that has already passed is
-  not merged with one due this evening. A trace below 0.05 mm reads
-  `<0.1 mm` rather than rounding down to a dry-looking `0.0`.
+  the wet hours into runs and describes the one still to come —
+  `Next: 0.4mm 18:00–20:00`, `Raining: 1.2mm to 16:00`, `Tomorrow: 2.1mm
+  09:00–13:00`, `No more rain today` or `No rain expected` — so a shower
+  that has already passed is not merged with one due this evening. A
+  trace below 0.05 mm reads `<0.1 mm` rather than rounding down to a
+  dry-looking `0.0`.
+
+  The line looks **one day ahead**. Because the forecast holds only hours
+  still to come, a wet morning leaves today with no wet hours left, and a
+  today-only version printed `No rain expected` directly beneath a
+  latched `16.2 mm rain today`. Once today is dry the line rolls onto
+  tomorrow's first wet run; the day after is deliberately out of scope.
+  With neither day wet, the latched mm total picks the wording: `No more
+  rain today` if it has already rained, `No rain expected` if it never
+  will. Run ends come from the next forecast entry rather than
+  last-hour + 1 h, since Met.no thins to multi-hour steps further out.
 
   Met.no's hourly forecast contains **only hours still to come**, so the
   mm total is latched against its own previous state and reset at
