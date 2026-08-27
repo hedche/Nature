@@ -1,0 +1,65 @@
+# Bedroom sleep sounds, triggered from the Zigbee TS0044 4-gang remote
+# (button 4: single press = pink noise, double press = handpan).
+#
+# The MP3s come off the QNAP over the Supervisor NFS media mount `qnap`
+# (exported path /Audio, so the files land at /media/qnap/Audio/Long/) and
+# play on the *native* Sonos entity — not Music Assistant, whose only
+# provider mapping used to be a Plex server on the QNAP that no longer
+# exists. If these ever go silent, check the mount is really there with
+# `grep ' /media' /proc/mounts` on hassio: `ha mounts info` reports the
+# NFS unit as active even when the bind mount that publishes /media/qnap
+# has been orphaned by a NAS reboot. Fix is `ha supervisor restart`.
+#
+# The `id:` values are the ones these automations were born with in
+# automations.yaml — keep them so history, traces and any dashboard
+# references survive the move into this package.
+#
+# `device_id` is this instance's ZHA device for the remote. The TS0044
+# exposes device triggers only (no entities), so there is no portable
+# entity-based alternative; re-pairing the remote means re-capturing it.
+automation:
+  - id: "1780955735746"
+    alias: Play Pink Noise
+    triggers:
+      - trigger: device
+        device_id: 03160cee1a84a1189791e4fdffa02762
+        domain: zha
+        type: remote_button_short_press
+        subtype: button_4
+    conditions: []
+    actions:
+      - action: media_player.volume_set
+        target:
+          entity_id: media_player.bedroom_sonos
+        data:
+          volume_level: 0.18
+      - action: media_player.play_media
+        target:
+          entity_id: media_player.bedroom_sonos
+        data:
+          media_content_id: "media-source://media_source/local/qnap/Audio/Long/Deep Pink Noise - 12h.mp3"
+          media_content_type: music
+    mode: single
+
+  - id: "1780955788063"
+    alias: Play Handpan
+    triggers:
+      - trigger: device
+        device_id: 03160cee1a84a1189791e4fdffa02762
+        domain: zha
+        type: remote_button_double_press
+        subtype: button_4
+    conditions: []
+    actions:
+      - action: media_player.volume_set
+        target:
+          entity_id: media_player.bedroom_sonos
+        data:
+          volume_level: 0.1
+      - action: media_player.play_media
+        target:
+          entity_id: media_player.bedroom_sonos
+        data:
+          media_content_id: "media-source://media_source/local/qnap/Audio/Long/Handpan Music - 8h.mp3"
+          media_content_type: music
+    mode: single

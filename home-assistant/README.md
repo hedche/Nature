@@ -14,6 +14,7 @@ esphome/                  ESPHome device configs, built/flashed from the Mac
 ha-config/
   packages/               HA config packages deployed to /config/packages/
     nature_panel.yaml     Template sensors feeding the bedroom panel
+    sleep_sounds.yaml     Bedroom pink-noise / handpan automations
   deploy.sh               scp package(s) to hassio + ha core check/restart
 ```
 
@@ -145,3 +146,9 @@ homeassistant:
 
 `deploy.sh` checks for this and tells you if it's missing (edit manually
 under the existing `homeassistant:` key — don't add a duplicate key).
+
+Automations moved into a package must be deleted from `/config/automations.yaml`
+on hassio in the same change — Core loads both files, and leaving the original
+in place registers the automation twice, so one button press fires it twice.
+Package automations also stop being editable from the UI; edit them here and
+redeploy instead.
