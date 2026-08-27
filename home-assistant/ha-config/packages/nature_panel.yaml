@@ -1,8 +1,8 @@
 # Template sensors feeding the bedroom ESPHome panel
 # (home-assistant/esphome/bedroom-panel.yaml).
 #
-# Computes today's at-a-glance weather from the Met Office hourly forecast.
-# If the Met Office weather entity ID differs, update it in BOTH the
+# Computes today's at-a-glance weather from the Met.no hourly forecast.
+# If the Met.no weather entity ID differs, update it in BOTH the
 # trigger and the action below, and in the ESPHome substitution.
 template:
   - triggers:
@@ -24,14 +24,36 @@ template:
           type: hourly
         response_variable: fc
       - variables:
+          # Day bounds as UNIX timestamps, NOT ISO strings. The forecast's
+          # datetimes carry a UTC offset ("2026-08-18T23:00:00+00:00")
+          # while today_at() renders local ("2026-08-18T00:00:00+01:00"),
+          # so the string comparison this used to do shifted the whole
+          # window by the local UTC offset: on BST it selected today
+          # 02:00 → tomorrow 01:00, dropping the first two hours of today
+          # and counting tomorrow's small hours as "today". Comparing
+          # timestamps is offset- and format-agnostic.
+          day_start: "{{ as_timestamp(today_at('00:00')) }}"
+          day_end: "{{ as_timestamp(today_at('00:00') + timedelta(days=1)) }}"
           today_hours: >
-            {{ (fc['weather.forecast_home'].forecast | default([]))
-               | selectattr('datetime', 'ge', today_at('00:00').isoformat())
-               | selectattr('datetime', 'lt', (today_at('00:00') + timedelta(days=1)).isoformat())
-               | list }}
+            {% set ns = namespace(hours=[]) %}
+            {% for h in (fc['weather.forecast_home'].forecast | default([])) %}
+              {% if h.datetime is defined
+                    and as_timestamp(h.datetime) >= day_start
+                    and as_timestamp(h.datetime) < day_end %}
+                {% set ns.hours = ns.hours + [h] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.hours }}
+          # Any hour with rain in it, however little. The threshold used to
+          # be `> 0.1`, which silently dropped whole drizzly days: met.no
+          # reports hourly precipitation to 1dp, so a light day is a run of
+          # hours of exactly 0.1mm and every one of them was excluded,
+          # leaving "0.0 mm" / "No rain expected". `is_number` guards the
+          # comparison against hours that carry a null precipitation.
           wet_hours: >
             {{ today_hours | selectattr('precipitation', 'defined')
-               | selectattr('precipitation', '>', 0.1) | list }}
+               | selectattr('precipitation', 'is_number')
+               | selectattr('precipitation', '>', 0) | list }}
           # The forecast only contains hours still to come, so by evening a
           # plain min/max over it collapses to tonight's values and forgets
           # the afternoon peak. Candidates = remaining forecast hours plus
@@ -63,11 +85,36 @@ template:
       - name: "Panel Today Rain Total"
         unique_id: panel_today_rain_total
         unit_of_measurement: "mm"
+        # LATCHED, for the same reason the temperatures above are: the
+        # hourly forecast only contains hours still to come, so a plain sum
+        # decays to 0.0 as the day's rain passes and the panel ends up
+        # claiming a wet morning was dry. Latching the highest whole-day
+        # figure seen since midnight — the forecast at 00:00 covers the
+        # entire day — makes "mm rain today" mean what it says. It
+        # overstates if a forecast shower is later cancelled; that is the
+        # accepted trade for not understating rain that actually fell.
+        #
+        # 2dp, not 1: rounding to 1dp turns a genuine trace of rain into a
+        # flat 0.0 before the panel sees it. The panel renders anything
+        # under 0.05 as "<0.1 mm".
         state: >
-          {{ (wet_hours | map(attribute='precipitation') | sum) | round(1)
-             if today_hours else none }}
-      # String sensor (no unit): compact "when will it rain" line for the
-      # panel, e.g. "3.2mm 14:00–17:00" or "No rain expected".
+          {% set new = (wet_hours | map(attribute='precipitation') | sum)
+                       if today_hours else none %}
+          {% set prev = this.state | float(none) if trigger.id != 'midnight' else none %}
+          {% set cands = ([new] if new is not none else [])
+                         + ([prev] if prev is not none else []) %}
+          {{ (cands | max) | round(2) if cands else none }}
+      # String sensor (no unit): compact "when is the next rain" line for
+      # the panel — e.g. "Next: 0.4mm 18:00–20:00", "Raining: 1.2mm to
+      # 16:00", "No more rain today" or "No rain expected".
+      #
+      # wet_hours is split into RUNS of consecutive forecast steps and the
+      # line describes the run that is still to come (or in progress). It
+      # used to print first-wet-hour–last-wet-hour across the whole day,
+      # which merged a shower that had already passed with one due in the
+      # evening into a single misleading "01:00–20:00" span. The mm sensor
+      # above answers "how wet is today" (latched, whole-day); this line
+      # answers "when next", which is the other half of the question.
       - name: "Panel Today Rain When"
         unique_id: panel_today_rain_when
         state: >
@@ -76,10 +123,43 @@ template:
           {% elif not wet_hours %}
             No rain expected
           {% else %}
-            {% set total = wet_hours | map(attribute='precipitation') | sum | round(1) %}
-            {% set first = as_timestamp(wet_hours[0].datetime) | timestamp_custom('%H:%M') %}
-            {% set last = (as_timestamp(wet_hours[-1].datetime) + 3600) | timestamp_custom('%H:%M') %}
-            {{ total }}mm {{ first }}–{{ last }}
+            {# Forecast granularity, rather than assuming hourly: it also
+               sets how long the final wet step of a run lasts. #}
+            {% set step = (as_timestamp(today_hours[1].datetime)
+                           - as_timestamp(today_hours[0].datetime))
+                          if today_hours | count > 1 else 3600 %}
+            {% set ns = namespace(runs=[], cur=[]) %}
+            {% for h in wet_hours %}
+              {% if ns.cur and (as_timestamp(h.datetime)
+                                - as_timestamp(ns.cur[-1].datetime)) > step %}
+                {% set ns.runs = ns.runs + [ns.cur] %}
+                {% set ns.cur = [h] %}
+              {% else %}
+                {% set ns.cur = ns.cur + [h] %}
+              {% endif %}
+            {% endfor %}
+            {% set ns.runs = ns.runs + [ns.cur] %}
+            {# First run that has not finished yet — in progress counts. #}
+            {% set sel = namespace(run=none) %}
+            {% for r in ns.runs %}
+              {% if sel.run is none
+                    and (as_timestamp(r[-1].datetime) + step) > as_timestamp(now()) %}
+                {% set sel.run = r %}
+              {% endif %}
+            {% endfor %}
+            {% if sel.run is none %}
+              No more rain today
+            {% else %}
+              {% set total = sel.run | map(attribute='precipitation') | sum %}
+              {% set amount = '<0.1mm' if total < 0.05 else (total | round(1) ~ 'mm') %}
+              {% set start = as_timestamp(sel.run[0].datetime) %}
+              {% set end = (as_timestamp(sel.run[-1].datetime) + step) | timestamp_custom('%H:%M') %}
+              {% if start <= as_timestamp(now()) %}
+                Raining: {{ amount }} to {{ end }}
+              {% else %}
+                Next: {{ amount }} {{ start | timestamp_custom('%H:%M') }}–{{ end }}
+              {% endif %}
+            {% endif %}
           {% endif %}
 
   # Media metadata for the panel with fallbacks: streams and local files

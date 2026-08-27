@@ -187,7 +187,11 @@ script:
     then:
       - lvgl.label.update:
           id: lbl_rain_mm
-          text: !lambda 'return str_sprintf("%.1f mm rain today", x);'
+          # A trace of rain must not read as a dry day: "%.1f" turns any
+          # total under 0.05mm into "0.0 mm", so say "<0.1 mm" instead.
+          text: !lambda |-
+            if (x > 0.0f && x < 0.05f) return std::string("<0.1 mm rain today");
+            return str_sprintf("%.1f mm rain today", x);
   - id: ui_rain_when
     parameters:
       x: string

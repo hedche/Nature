@@ -39,7 +39,7 @@ substitutions:
   sim_temp_min: "12"
   sim_temp_max: "23"
   sim_rain_mm: "3.2"
-  sim_rain_when: "3.2mm 14:00–17:00"
+  sim_rain_when: "Next: 0.4mm 18:00–20:00"
   sim_weather: "rainy"
   sim_media_title: "Blue Monday"
   sim_media_artist: "New Order"

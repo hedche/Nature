@@ -81,10 +81,30 @@ and still need checking on the wall.
 4" 480×480 IPS touch panel in an 86-box wall-switch form factor. Two
 LVGL pages, swipe left/right to switch:
 
-- **Weather** — today's min/max °C, total rain (mm) and when it's
-  expected, condition icon. Fed by the built-in Met.no integration
-  (`weather.forecast_home`, no API key) through the template sensors in
-  `ha-config/packages/nature_panel.yaml`.
+- **Weather** — today's min/max °C, the day's total rain (mm) and the
+  next spell of rain, condition icon. Fed by the built-in Met.no
+  integration (`weather.forecast_home`, no API key) through the template
+  sensors in `ha-config/packages/nature_panel.yaml`. The rain line splits
+  the day's wet hours into runs and describes the one still to come —
+  `Next: 0.4mm 18:00–20:00`, `Raining: 1.2mm to 16:00`, `No more rain
+  today` or `No rain expected` — so a shower that has already passed is
+  not merged with one due this evening. A trace below 0.05 mm reads
+  `<0.1 mm` rather than rounding down to a dry-looking `0.0`.
+
+  Met.no's hourly forecast contains **only hours still to come**, so the
+  mm total is latched against its own previous state and reset at
+  midnight, exactly like the min/max temperatures. Without that it decays
+  to `0.0` as the day's rain passes and the panel claims a wet morning was
+  dry. The latch therefore reads "the wettest the day was ever forecast to
+  be", which overstates if a forecast shower is later cancelled — the
+  accepted trade for not understating rain that actually fell. True
+  fallen-rain totals would need an observation source (a rain gauge);
+  Met.no is a forecast service and has none.
+
+  Forecast datetimes must be compared as timestamps, never as ISO
+  strings: they carry a UTC offset while `today_at()` renders local, so
+  string comparison silently shifts "today" by the local UTC offset (on
+  BST it selected 02:00 today → 01:00 tomorrow).
 - **Music** — bedroom Sonos: track/artist (with stream/filename
   fallbacks), album art (JPEG/PNG via HA's image proxy), prev/play-pause/
   next, volume.
