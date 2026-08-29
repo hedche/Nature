@@ -1,5 +1,5 @@
 # Guition ESP32-S3-4848S040 — 4" 480x480 IPS touch panel (86-box form factor)
-# Bedroom wall panel: weather page + Sonos media page, swipe to switch.
+# Bedroom wall panel: weather, Sonos media and lights pages, swipe to switch.
 # Build/flash with ./run.sh (see README.md). Reference config:
 # https://devices.esphome.io/devices/guition-esp32-s3-4848s040/
 
@@ -9,6 +9,23 @@ substitutions:
   # Confirm these entity IDs in HA before flashing.
   sonos_entity: media_player.bedroom_sonos
   weather_entity: weather.forecast_home
+  # Lights page: four tiles, top-left to bottom-right. All are on/off
+  # switches (smart plugs), so the tiles toggle via homeassistant.toggle and
+  # follow the state HA reports back. Names are what the tile prints; the
+  # icons are MDI glyphs from the package's mdi_42 font, so a new icon has
+  # to be added to that glyph list too.
+  light_1_entity: switch.smarthutplug_dbeb24_plug
+  light_1_name: "Lydia's Light"
+  light_1_icon: "\U000F06B5" # lamp
+  light_2_entity: switch.smarthutplug_ded8f4_plug
+  light_2_name: "Stair Light"
+  light_2_icon: "\U000F04CD" # stairs
+  light_3_entity: switch.kitchen_lamp
+  light_3_name: "Kitchen Lamp"
+  light_3_icon: "\U000F08DD" # floor-lamp
+  light_4_entity: switch.living_room_bookshelf_lamp
+  light_4_name: "Bookshelf Lamp"
+  light_4_icon: "\U000F125F" # bookshelf
 
 esphome:
   name: ${name}
@@ -41,6 +58,21 @@ wifi:
 api:
   encryption:
     key: !secret api_encryption_key
+  # The homeassistant text sensors keep their last value when HA goes away,
+  # so without this a HA restart leaves the lights page confidently showing
+  # stale states. HA re-sends every subscribed state on reconnect. Only HA
+  # counts: the esphome CLI (`./run.sh logs`) is an API client too, and its
+  # disconnect must not blank the tiles — HA would not resend anything
+  # until a light actually changed.
+  on_client_disconnected:
+    - if:
+        condition:
+          lambda: 'return client_info.rfind("Home Assistant", 0) == 0;'
+        then:
+          - script.execute: { id: ui_light, n: 1, x: "unavailable" }
+          - script.execute: { id: ui_light, n: 2, x: "unavailable" }
+          - script.execute: { id: ui_light, n: 3, x: "unavailable" }
+          - script.execute: { id: ui_light, n: 4, x: "unavailable" }
 
 ota:
   - platform: esphome
@@ -255,4 +287,38 @@ text_sensor:
     on_value:
       - script.execute:
           id: ui_media_state
+          x: !lambda "return x;"
+  # Lights page. The raw state string goes through so the tile can tell
+  # "unavailable" (HA restarting, Zigbee device gone) from plain off.
+  - platform: homeassistant
+    id: light_1_state
+    entity_id: ${light_1_entity}
+    on_value:
+      - script.execute:
+          id: ui_light
+          n: 1
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: light_2_state
+    entity_id: ${light_2_entity}
+    on_value:
+      - script.execute:
+          id: ui_light
+          n: 2
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: light_3_state
+    entity_id: ${light_3_entity}
+    on_value:
+      - script.execute:
+          id: ui_light
+          n: 3
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: light_4_state
+    entity_id: ${light_4_entity}
+    on_value:
+      - script.execute:
+          id: ui_light
+          n: 4
           x: !lambda "return x;"

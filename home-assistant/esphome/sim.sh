@@ -15,8 +15,13 @@
 #
 # See bedroom-panel-sim.yaml for the full list of sim_* substitutions.
 #
-# Needs SDL2 (brew install sdl2) and, for `shot`, Screen Recording permission
-# for your terminal (System Settings > Privacy & Security > Screen Recording).
+# `shot` never touches the desktop: the simulator is compiled with the
+# `sim_shot` substitution set, renders headlessly (SDL dummy video driver),
+# dumps its own backbuffer to a BMP once the mock values are drawn, and
+# exits. No window, no Screen Recording permission, and the PNG is the
+# framebuffer pixel for pixel.
+#
+# Needs SDL2 (brew install sdl2).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,18 +31,6 @@ command -v esphome >/dev/null 2>&1 || { echo "ERROR: esphome required (uv tool i
 command -v sdl2-config >/dev/null 2>&1 || { echo "ERROR: SDL2 required (brew install sdl2)" >&2; exit 1; }
 
 cd "$SCRIPT_DIR"
-
-# Where the window lands, straight from the config so the two can't drift.
-# Only the display block, so a stray `x:` in the touchscreen lambdas below it
-# can't be mistaken for the window position.
-geom() {
-    awk -v k="$1:" '/^display:/{d=1} d && /^touchscreen:/{exit} d && $1==k {print $2; exit}' "$CONFIG"
-}
-WIN_X="$(geom x)"; WIN_Y="$(geom y)"
-WIN_W="$(geom width)"; WIN_H="$(geom height)"
-for v in "$WIN_X" "$WIN_Y" "$WIN_W" "$WIN_H"; do
-    [[ "$v" =~ ^[0-9]+$ ]] || { echo "ERROR: could not read window geometry from $CONFIG (got '$v')" >&2; exit 1; }
-done
 
 # A leading option means no subcommand was given, so default to `run` rather
 # than treating -s as one.
@@ -60,44 +53,42 @@ case "$CMD" in
         ;;
 esac
 
-# ---- shot: compile, run headless-ish, grab one frame, tear down ----
+# ---- shot: compile with the dump path baked in, run, convert ----
+
+# The dump is BMP (SDL writes that natively); sips turns it into the PNG the
+# caller asked for. Same directory as the target so a full disk fails loudly
+# at the same place either way.
+BMP="${OUT%.png}.bmp"
+rm -f "$BMP"
+# Never leave the intermediate behind, however this exits.
+trap 'rm -f "$BMP"' EXIT
 
 # esphome logs its INFO lines to stderr, so fold both streams together before
 # picking the binary path out of them.
-BIN="$(esphome "$@" compile "$CONFIG" 2>&1 | tee /dev/stderr \
+BIN="$(esphome -s sim_shot "$BMP" "$@" compile "$CONFIG" 2>&1 | tee /dev/stderr \
         | sed -n "s/.*Successfully compiled program to path '\(.*\)'.*/\1/p" | tail -1)"
 [[ -x "$BIN" ]] || { echo "ERROR: compile produced no runnable binary" >&2; exit 1; }
 
-# The simulator's own log goes straight to this terminal: the host binary
-# block-buffers stdout whenever it isn't a tty, so a redirected log file stays
-# empty for the whole run and is useless both to read and to wait on.
-"$BIN" &
+# The binary exits by itself once the frame is written (exit 3 if the dump
+# failed). Cap it so a simulator that never reaches on_boot can't hang a CI
+# run; its own log goes straight to this terminal. SDL's dummy video driver
+# renders into memory only — no window flashes up, no WindowServer needed,
+# and the frame is byte-identical to the on-screen one.
+SDL_VIDEODRIVER=dummy "$BIN" &
 PID=$!
 # shellcheck disable=SC2064
-trap "kill $PID 2>/dev/null || true" EXIT
-
-# Readiness signal is the API port binding instead. Components set up in
-# priority order and the API is late in that order, so once 6053 accepts, the
-# display and LVGL are already up. (If you ever drop `api:` from the sim
-# config, this check has to change.)
-READY=0
-for _ in $(seq 1 150); do
-    if (exec 3<>/dev/tcp/127.0.0.1/6053) 2>/dev/null; then READY=1; break; fi
-    kill -0 "$PID" 2>/dev/null || { echo "ERROR: simulator exited early (see its log above)" >&2; exit 1; }
-    sleep 0.2
+trap "kill $PID 2>/dev/null || true; rm -f '$BMP'" EXIT
+for _ in $(seq 1 300); do
+    kill -0 "$PID" 2>/dev/null || break
+    sleep 0.1
 done
-# Without this the capture would grab whatever is at those coordinates — the
-# desktop, another window — and cheerfully report success.
-[[ "$READY" = 1 ]] || { echo "ERROR: simulator never came up (30s) — see its log above" >&2; exit 1; }
-# Let on_boot push the mock values in and LVGL finish its first draw.
-sleep 2
-
-screencapture -x -R"${WIN_X},${WIN_Y},${WIN_W},${WIN_H}" "$OUT" || {
-    echo "ERROR: screencapture failed — grant your terminal Screen Recording permission" >&2
+if kill -0 "$PID" 2>/dev/null; then
+    echo "ERROR: simulator still running after 30s without writing a frame — see its log above" >&2
     exit 1
-}
+fi
+wait "$PID" || { echo "ERROR: simulator exited without a frame (see its log above)" >&2; exit 1; }
+[[ -s "$BMP" ]] || { echo "ERROR: simulator exited but wrote no frame to $BMP" >&2; exit 1; }
 
-# Retina captures at 2x; normalise so screenshots are diffable against each other.
-sips -z "$WIN_H" "$WIN_W" "$OUT" >/dev/null 2>&1 || true
+sips -s format png "$BMP" --out "$OUT" >/dev/null || { echo "ERROR: could not convert $BMP to PNG" >&2; exit 1; }
 
 echo "captured $OUT ($(sips -g pixelWidth -g pixelHeight "$OUT" 2>/dev/null | tr -d ' \n' | sed 's/.*pixelWidth:/w=/;s/pixelHeight:/ h=/'))"

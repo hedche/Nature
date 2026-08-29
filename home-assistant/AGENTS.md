@@ -28,6 +28,7 @@ The panel's screen is split so the same UI runs on the Mac as on the wall:
 | File | What it holds |
 |------|---------------|
 | `esphome/packages/panel-ui.yaml` | The UI itself: globals, gesture scripts, `ui_*` data scripts, fonts, LVGL. No hardware, no data sources. |
+| `esphome/packages/light-tile.yaml` | One lights-page tile, pulled into the UI package four times with `!include` vars (`n`, `col`, `row`, `icon`, `name`). Edit the tile here, never by copying it. |
 | `esphome/bedroom-panel.yaml` | The real Guition 4848S040: hardware, plus the Home Assistant sensors that feed it. |
 | `esphome/bedroom-panel-sim.yaml` | The same UI on an SDL window, fed mock `sim_*` values. |
 
@@ -41,10 +42,13 @@ The panel's screen is split so the same UI runs on the Mac as on the wall:
   (its `on_boot` block). Skip the sim side and the simulator quietly renders a
   stale screen — that divergence is the main failure mode of this split.
 - The two targets must keep providing the IDs the UI package addresses:
-  `lcd`, `panel_touch`, `backlight`, `panel_restart`, and `${sonos_entity}`.
+  `lcd`, `panel_touch`, `backlight`, `panel_restart`, `${sonos_entity}`,
+  and `${light_N_entity}` / `${light_N_name}` / `${light_N_icon}` for
+  N = 1..4. An icon must be in the package's `mdi_42` glyph list — a glyph
+  the font was not built with renders as a box, not an error.
 - Exercise edge cases with substitutions, not by editing files:
   `./sim.sh shot long.png -s sim_media_title "a 90-character track name…"`.
-- Two states are reachable only via a substitution, and both are easy to
+- Some states are reachable only via a substitution, and all are easy to
   assume are untestable:
   - `-s sim_drawer true` opens the settings drawer. It lives on the LVGL top
     layer rather than being a page, so `sim_page` cannot select it and
@@ -52,12 +56,17 @@ The panel's screen is split so the same UI runs on the Mac as on the wall:
   - `-s sim_temp_min NAN` (uppercase — lowercase `nan` will not compile)
     reproduces an unavailable Home Assistant sensor, which is what the panel
     shows after every HA restart.
+  - `-s sim_light_N unavailable` renders a dead light tile; `-s sim_pressed
+    true` forces the first tile and the All-off bar into LVGL's pressed
+    state, since a `shot` has no finger on the screen.
 - **What the simulator cannot tell you:** it renders LVGL's framebuffer, so it
   has nothing to say about backlight brightness (the `backlight` output is a
   logging stub), RGB panel tearing, PSRAM pressure, boot behaviour or the real
   touch digitiser. Those still need the panel on the wall.
-- `sim.sh` needs SDL2 (`brew install sdl2`); `shot` also needs Screen Recording
-  permission for your terminal.
+- `sim.sh` needs SDL2 (`brew install sdl2`). `shot` needs nothing else: the
+  simulator is compiled with `sim_shot` set to a BMP path, runs on SDL's
+  dummy video driver, writes its own backbuffer there (`sim_shot.h`) and
+  exits — headless, sandbox-safe, and it never captures the wrong window.
 
 ## HA config packages (`ha-config/`)
 

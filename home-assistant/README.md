@@ -6,9 +6,11 @@ holds the parts that are repo-managed:
 
 ```
 esphome/                  ESPHome device configs, built/flashed from the Mac
-  bedroom-panel.yaml      Guition ESP32-S3-4848S040 4" touch panel (weather + Sonos)
+  bedroom-panel.yaml      Guition ESP32-S3-4848S040 4" touch panel (weather + Sonos + lights)
   bedroom-panel-sim.yaml  The same UI in a desktop SDL window, fed mock data
   packages/panel-ui.yaml  The screen itself, shared by the panel and the simulator
+  packages/light-tile.yaml  One lights-page tile, included per light with `!include` vars
+  sim_shot.h              Lets the simulator dump its own framebuffer for `sim.sh shot`
   run.sh                  Renders secrets, wraps the esphome CLI
   sim.sh                  Runs / screenshots the simulator
 ha-config/
@@ -41,6 +43,14 @@ cd home-assistant/esphome
 ./run.sh logs                  # stream device logs
 ```
 
+If the OTA step fails instantly with `No route to host` while `nc -z
+10.30.1.124 3232` connects, it is macOS Local Network privacy, not the
+network: Apple's own binaries are exempt but the uv-installed Python is
+silently denied unless the terminal you are in has been granted *Local
+Network* (System Settings → Privacy & Security → Local Network). Grant it,
+or run the upload from a terminal that has it.
+
+
 First flash: connect the panel over USB-C (shows up as
 `/dev/cu.usbmodem*`; hold BOOT while plugging in if download mode isn't
 entered). After that, uploads go OTA automatically.
@@ -68,10 +78,13 @@ cd home-assistant/esphome
 ./sim.sh                                       # open the window (Ctrl-C quits)
 ./sim.sh shot out.png                          # capture one frame and exit
 ./sim.sh shot music.png -s sim_page music_page # any sim_* value can be overridden
+./sim.sh shot lights.png -s sim_page lights_page -s sim_light_4 unavailable
 ```
 
-`shot` needs Screen Recording permission for your terminal (System
-Settings → Privacy & Security → Screen Recording).
+`shot` runs the simulator headlessly (SDL's dummy video driver) and has it
+write its own framebuffer to disk (see `sim_shot.h`) rather than
+screenshotting the desktop, so it needs no Screen Recording permission,
+opens no window, and works from a sandboxed or SSH shell.
 
 It renders the framebuffer and nothing else: backlight brightness, panel
 tearing, PSRAM limits and the real touch digitiser are all invisible here
@@ -79,7 +92,7 @@ and still need checking on the wall.
 
 ## Bedroom panel (Guition ESP32-S3-4848S040)
 
-4" 480×480 IPS touch panel in an 86-box wall-switch form factor. Two
+4" 480×480 IPS touch panel in an 86-box wall-switch form factor. Three
 LVGL pages, swipe left/right to switch:
 
 - **Weather** — today's min/max °C, the day's total rain (mm) and the
@@ -120,6 +133,18 @@ LVGL pages, swipe left/right to switch:
 - **Music** — bedroom Sonos: track/artist (with stream/filename
   fallbacks), album art (JPEG/PNG via HA's image proxy), prev/play-pause/
   next, volume.
+- **Lights** — four tiles (Lydia's Light, Stair Light, Kitchen Lamp,
+  Bookshelf Lamp — all smart plugs, so plain on/off) and an "All off"
+  bar. A tile is amber when the light is on, dark when off, and recedes
+  with the word *Unavailable* when HA or the plug is unreachable (also
+  what every tile shows until HA has reported, and again the moment the
+  HA connection drops). Tapping calls `homeassistant.toggle`; the tile
+  only changes once HA reports the new state, so it never lies. Which
+  lights, their names and icons are the `light_N_*` substitutions in
+  `bedroom-panel.yaml` (icons must be in the package's `mdi_42` glyph
+  list). Two guards keep a bedroom panel honest: a swipe that starts and
+  ends on the same tile is not a tap, and the touch that wakes a dimmed
+  or sleeping screen never toggles what it landed on.
 
 Swipe down from the top edge for the settings drawer: brightness
 slider, screen off, restart, wifi signal/IP. Swipe up or tap ✕ to close.

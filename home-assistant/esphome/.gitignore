@@ -5,3 +5,4 @@
 /secrets.yaml
 # Simulator screenshots (./sim.sh shot) — scratch output, not artefacts.
 *.png
+*.bmp
