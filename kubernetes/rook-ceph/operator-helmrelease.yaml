@@ -28,5 +28,72 @@ spec:
       enabled: true
     csi:
       installCsiOperator: true
-    enableDiscoveryDaemon: true
-    discoveryDaemonInterval: 10m
+      enableRbdDriver: true
+      # CephFS is unused: no CephFilesystem CRs, no cephfs StorageClass, and
+      # `ceph fs ls` reports no filesystems. Disabling it drops 2 ctrlplugin +
+      # 3 nodeplugin pods (2,200m CPU / 3,968Mi of requests). Set back to true
+      # if RWX volumes are ever needed.
+      enableCephfsDriver: false
+      # One provisioner is plenty for three workers.
+      provisionerReplicas: 1
+      csiRBDProvisionerResource: |
+        - name : csi-provisioner
+          resource:
+            requests:
+              memory: 64Mi
+              cpu: 25m
+            limits:
+              memory: 256Mi
+        - name : csi-resizer
+          resource:
+            requests:
+              memory: 64Mi
+              cpu: 25m
+            limits:
+              memory: 256Mi
+        - name : csi-attacher
+          resource:
+            requests:
+              memory: 64Mi
+              cpu: 25m
+            limits:
+              memory: 256Mi
+        - name : csi-snapshotter
+          resource:
+            requests:
+              memory: 64Mi
+              cpu: 25m
+            limits:
+              memory: 256Mi
+        - name : csi-rbdplugin
+          resource:
+            requests:
+              memory: 256Mi
+              cpu: 50m
+            limits:
+              memory: 1Gi
+      csiRBDPluginResource: |
+        - name : driver-registrar
+          resource:
+            requests:
+              memory: 32Mi
+              cpu: 10m
+            limits:
+              memory: 256Mi
+        - name : csi-rbdplugin
+          resource:
+            requests:
+              memory: 256Mi
+              cpu: 50m
+            limits:
+              memory: 1Gi
+    # OSD devices are pinned to sda per node (see cluster-helmrelease.yaml), so
+    # device discovery is redundant. This restores the chart default and frees
+    # ~280Mi of real memory across the three workers.
+    enableDiscoveryDaemon: false
+    resources:
+      limits:
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
