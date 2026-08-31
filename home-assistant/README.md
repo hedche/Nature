@@ -15,6 +15,7 @@ esphome/                  ESPHome device configs, built/flashed from the Mac
   sim.sh                  Runs / screenshots the simulator
 ha-config/
   packages/               HA config packages deployed to /config/packages/
+    bedroom_alarm.yaml    Bedroom 08:50 one-shot alarm (button 2 + Sonos)
     nature_panel.yaml     Template sensors feeding the bedroom panel
     sleep_sounds.yaml     Bedroom pink-noise / handpan automations
   deploy.sh               scp package(s) to hassio + ha core check/restart
@@ -163,6 +164,88 @@ forecast includes `precipitation` in mm. The entity is
 `weather_entity` substitution in `esphome/bedroom-panel.yaml`.
 (The Met Office DataHub integration was considered but its config flow
 failed to connect with a fresh API key; Met.no is keyless and sufficient.)
+
+## Bedroom wake-up alarm
+
+A short press of **button 2** on the bedroom TS0044 remote arms the alarm for
+the next wake-up time, and the bedroom Sonos confirms it out loud — *"Alarm set
+for eight fifty A M"* — with *"Alarm turned off for …"* on the press that
+disarms it. Everything lives in `ha-config/packages/bedroom_alarm.yaml`: the
+`input_boolean.bedroom_alarm` arm flag, the `input_datetime.bedroom_alarm_time`
+wake-up time, a `sensor.bedroom_alarm_next` readout, the ring and confirmation
+scripts, and the two automations.
+
+The time comes from a **Bedroom Alarm card on the Priors Hill dashboard** — a
+time picker, the arm toggle and the next-alarm readout:
+
+```yaml
+type: entities
+title: Bedroom Alarm
+show_header_toggle: false
+entities:
+  - entity: input_datetime.bedroom_alarm_time
+    name: Wake-up time
+    icon: mdi:clock-outline
+  - entity: input_boolean.bedroom_alarm
+    name: Armed
+    icon: mdi:alarm
+  - entity: sensor.bedroom_alarm_next
+    name: Next alarm
+```
+
+The dashboard is storage-mode, so that card is a manual paste (Priors Hill →
+Edit → Raw configuration editor), like the other UI-owned config here.
+Toggling the arm flag from the dashboard is deliberately **silent**: the spoken
+confirmations hang off the button press, because a phone tap should not fire
+the bedroom speaker.
+
+The trigger is a plain HA time trigger reading `input_datetime`, so it fires in
+Home Assistant's own timezone — `Europe/London` — not UTC. It follows BST and
+GMT on its own; 08:50 is 08:50 on the bedroom clock all year.
+
+It is **one-shot**. Arming is for the *next* wake-up only; the ring clears the
+flag on its way out, so a morning you did not ask for is never rung. A press
+while it is ringing dismisses it, and stays quiet — no confirmation at that
+hour. To make it repeat daily, delete the `input_boolean.turn_off` at the end
+of `script.bedroom_alarm_ring`.
+
+A fresh `input_datetime` starts at **00:00** and cannot be given a default:
+`initial:` would win over the restored value and reset the wake-up time on
+every restart. So the ring automation reads 00:00 as *never configured* and
+refuses to fire, and the card shows `Time not set`. On a from-scratch rebuild,
+set the time once from the card.
+
+The alarm itself is the QNAP handpan track faded in from 0.05 to 0.30 over 90s
+and then held for up to 20 minutes. It is deliberately *not* wrapped in
+`sonos.snapshot`/`restore` the way the spoken confirmation is: at wake-up time
+the 12h pink noise from button 4 is often still playing, and restoring would
+put the bedroom straight back to sleep. Only the speaker's prior volume is
+captured and handed back.
+
+If the NFS media mount has been orphaned by a NAS reboot — the failure mode
+`sleep_sounds.yaml` documents, where `ha mounts info` still claims the mount is
+active — the handpan cannot play, so the script falls back within 10s to
+looping `/media/local/timer_ring.wav` off the Pi's own filesystem. A silent
+alarm is the one outcome worth extra machinery to avoid. It tells the two cases
+apart by the track URI Sonos reports rather than by whether the speaker is
+playing, because the pink noise it is replacing also reads as `playing`.
+
+The spoken confirmation plays at volume 0.12 — below the pink noise (0.18) it
+often interrupts, since it arrives at the bedside with no fade. The wake-up
+ramp is separate and climbs to 0.30.
+
+Piper is given the time spelled out (`eight fifty A M`) rather than `8:50 am`:
+espeak-ng's normaliser reads the latter as "eight fifty" plus the word *am*, as
+in "I am". `script.bedroom_alarm_say` builds those words from the helper, so
+callers pass only `set` or `turned off` and the phrasing lives in one place.
+
+### Retired
+
+Button 3's `Alarm Control` automation and the `800_alarm` / `830_alarm` helpers
+were an earlier attempt at the same idea that never rang anything. The
+automation is gone from `/config/automations.yaml`; the two helpers are
+storage-mode UI helpers and are deleted from Settings → Devices & Services →
+Helpers. Button 3 is now free.
 
 ## HA config packages
 
