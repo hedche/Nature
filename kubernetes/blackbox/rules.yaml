@@ -9,6 +9,18 @@ spec:
   groups:
     - name: nature.network
       rules:
+        # Same class of guard as ../monitoring/rules/nature-selfcheck.yaml: if
+        # the Probe objects stop producing series entirely, every rule below
+        # goes quiet and looks exactly like a healthy network.
+        - alert: BlackboxProbeSeriesMissing
+          expr: absent(probe_success)
+          for: 15m
+          labels:
+            severity: warning
+            channel: pipeline
+          annotations:
+            summary: "No probe_success series — every network alert below is blind"
+
         - alert: LanHostUnreachable
           expr: probe_success{job="blackbox-icmp"} == 0
           for: 5m

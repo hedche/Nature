@@ -190,3 +190,36 @@ automation:
             cereal answers ping but port 6443 is closed. This is the shape of the
             2026-07-18 crackle hang — expect a remote reboot to be silently
             ignored and plan on a physical power-cycle.
+
+  # The second delivery path. Alertmanager sends every `severity: critical` and
+  # every `channel: pipeline` alert to BOTH Telegram and this webhook, so a
+  # revoked bot token or an unreachable api.telegram.org no longer swallows the
+  # alert silently. Without this, the heartbeat above keeps arriving and Home
+  # Assistant happily reports that monitoring is fine while nothing is being
+  # delivered.
+  - alias: "Nature — critical alert relayed from Alertmanager"
+    id: nature_critical_alert_relay
+    mode: queued
+    max: 20
+    triggers:
+      - trigger: webhook
+        webhook_id: nature-critical-alert
+        allowed_methods: [POST]
+        local_only: true
+    actions:
+      - variables:
+          status: "{{ trigger.json.status | default('firing') }}"
+          name: "{{ trigger.json.commonLabels.alertname | default('unknown') }}"
+          summary: >-
+            {{ trigger.json.alerts[0].annotations.summary
+               | default('No summary provided') }}
+      - action: notify.mobile_app_REPLACE_ME
+        data:
+          title: "[{{ status | upper }}] {{ name }}"
+          message: "{{ summary }}"
+          data:
+            push:
+              sound:
+                name: default
+                critical: "{{ 1 if status == 'firing' else 0 }}"
+                volume: 1.0

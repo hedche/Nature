@@ -10,7 +10,7 @@ the cluster, and a Prometheus inside a dead cluster reports nothing.
 
 | Vantage point | Sees | Blind to |
 |---|---|---|
-| Local Prometheus → Alertmanager → Telegram | everything, within ~30s | itself, and anything that kills the cluster |
+| Local Prometheus → Alertmanager → Telegram | everything, within ~30s | anything that kills the cluster |
 | Grafana Cloud rules on remote_written metrics | the cluster going silent | your home internet being the thing that broke |
 | Home Assistant on the LAN (`../../home-assistant/`) | the whole LAN, including this stack, going dark | anything above the LAN |
 
@@ -29,6 +29,7 @@ for headlamp. **Never** expose them through cloudflared.
 |---|---|
 | `helmrelease.yaml` | the whole stack: Prometheus, Alertmanager, node-exporter, kube-state-metrics, operator. Local Grafana disabled — Grafana Cloud is the UI |
 | `rules/` | homelab-specific `PrometheusRule`s, plus the recording rules that feed remote_write |
+| `rules/nature-selfcheck.yaml` | asks whether the alerting itself still works — `absent()` canaries for every metric a critical alert depends on, plus notification-delivery and config-reload failures |
 | `node-problem-detector/` | DaemonSet reading `/dev/kmsg` for NVMe DMA faults and kubelet healthz — see below |
 | `servicemonitor-ceph.yaml` | scrapes rook's existing mgr and exporter Services |
 | `ingress-*.yaml` | tailscale Ingresses for the two debug UIs |
@@ -177,6 +178,14 @@ Nothing below can be GitOps'd today. See the Terraform note at the end.
    | `CephUnhealthyCloud` | `ceph_health_status > 0` | 30m |
    | `PublicEndpointDown` | `probe_success{job="synthetic"} == 0` | 5m |
    | `SeriesCapApproaching` | `grafanacloud_instance_active_series > 8000` | 1h |
+   | `LocalAlertUndelivered` | `ALERTS{alertstate="firing",severity="critical",cluster="cereal"} == 1` | 10m |
+
+   `LocalAlertUndelivered` is the third leg of the delivery guarantee. The `ALERTS`
+   metric is remote_written, so Grafana Cloud can see that a critical alert is firing
+   inside the cluster and notify you over its own contact points — even if the local
+   Alertmanager is failing to deliver anything at all. Together with the
+   `critical-dual-path` receiver (Telegram *and* the Home Assistant webhook), a
+   critical alert now has three independent ways to reach you.
 
    `CerealOnBatteryCloud` duplicates a local rule on purpose — it survives the local
    Alertmanager failing.

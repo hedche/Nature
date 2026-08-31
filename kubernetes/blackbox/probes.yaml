@@ -22,6 +22,11 @@ spec:
         - 10.30.1.57 # hermes — NFS server for the media stack
         - 10.30.1.60 # hassio — the LAN watchdog itself
         - 10.30.1.20 # qnap
+        # VERIFIED DOWN 2026-08-31: no ARP response on en0 while qnap on the
+        # same segment answers in ~4ms. Either arctic is powered off or the
+        # garage powerline link is dead. Resolve this BEFORE deploying blackbox,
+        # or LanHostUnreachable and PowerlineLinkDegraded fire on day one and
+        # teach you to ignore the new alerts.
         - 10.30.1.21 # arctic — still behind the garage powerline
       labels:
         job: blackbox-icmp

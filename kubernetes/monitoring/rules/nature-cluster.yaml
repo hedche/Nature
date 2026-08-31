@@ -9,9 +9,25 @@ spec:
   groups:
     - name: nature.cluster
       rules:
-        # talos/manifests/coredns-spread.yaml exists precisely because both replicas
-        # once landed on cereal and died with it, turning a laptop battery into a
-        # total cluster DNS outage. Alert if we ever drift back to that.
+        # talos/manifests/coredns-spread.yaml exists precisely because the replicas
+        # once landed on cereal together and died with it, turning a laptop battery
+        # into a total cluster DNS outage. Alert if we ever drift back to that.
+        #
+        # Live state 2026-08-31: 3/3 available, spread across snap, cereal and pop.
+        # So one replica DOES sit on the laptop — losing cereal costs a third of
+        # DNS capacity, which is survivable, and the warning below catches the
+        # drift down to 2 long before the critical fires at 1.
+        - alert: CoreDNSDegraded
+          expr: >-
+            kube_deployment_status_replicas_available{deployment="coredns",namespace="kube-system"}
+            < kube_deployment_spec_replicas{deployment="coredns",namespace="kube-system"}
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CoreDNS is running below its desired replica count"
+            description: "Desired is 3. Losing one is survivable; this is the early warning."
+
         - alert: CoreDNSReplicasLow
           expr: >-
             kube_deployment_status_replicas_available{deployment="coredns",namespace="kube-system"} < 2

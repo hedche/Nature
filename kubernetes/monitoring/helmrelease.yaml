@@ -213,7 +213,15 @@ spec:
               group_interval: 1m
               repeat_interval: 1m
               continue: false
-            - receiver: telegram
+            # An alert about the notification path being broken must not
+            # travel down the path it is reporting on. Both of these end at a
+            # receiver that fans out to Telegram AND the Home Assistant webhook,
+            # so a revoked bot token still reaches a phone by the other route.
+            - receiver: critical-dual-path
+              matchers: [channel = "pipeline"]
+              group_wait: 0s
+              repeat_interval: 1h
+            - receiver: critical-dual-path
               matchers: [severity = "critical"]
               repeat_interval: 2h
         receivers:
@@ -228,6 +236,23 @@ spec:
                   {{ range .Alerts }}{{ .Annotations.summary }}
                   {{ if .Annotations.description }}{{ .Annotations.description }}
                   {{ end }}{{ end }}
+          # Two independent transports in one receiver. Alertmanager delivers
+          # to both, so neither Telegram nor the LAN webhook is a single point
+          # of failure for the alerts that matter most.
+          - name: critical-dual-path
+            telegram_configs:
+              - bot_token_file: /etc/alertmanager/secrets/alertmanager-telegram/bot-token
+                chat_id: ${TELEGRAM_CHAT_ID}
+                parse_mode: HTML
+                send_resolved: true
+                message: |
+                  <b>[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}</b>
+                  {{ range .Alerts }}{{ .Annotations.summary }}
+                  {{ if .Annotations.description }}{{ .Annotations.description }}
+                  {{ end }}{{ end }}
+            webhook_configs:
+              - url: http://10.30.1.60:8123/api/webhook/nature-critical-alert
+                send_resolved: true
           - name: home-assistant-heartbeat
             webhook_configs:
               - url: http://10.30.1.60:8123/api/webhook/nature-cluster-heartbeat

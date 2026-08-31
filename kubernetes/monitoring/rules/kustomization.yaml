@@ -5,4 +5,5 @@ resources:
   - nature-cluster.yaml
   - nature-storage.yaml
   - nature-hardware.yaml
+  - nature-selfcheck.yaml
   - remote-write-recording.yaml
