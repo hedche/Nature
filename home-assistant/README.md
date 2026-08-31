@@ -175,10 +175,13 @@ disarms it. Everything lives in `ha-config/packages/bedroom_alarm.yaml`: the
 wake-up time, a `sensor.bedroom_alarm_next` readout, the ring and confirmation
 scripts, and the two automations.
 
-The time is set from the **bedroom panel's alarm drawer** — swipe up from the
-bottom edge of the panel for +/− buttons (hold to accelerate) and an AM/PM
-toggle — or from a **Bedroom Alarm card on the Priors Hill dashboard** with a
-time picker, the arm toggle and the next-alarm readout:
+The time is set from the **bedroom panel**: the weather page carries an alarm
+chip (bell, wake-up time, and whether it is armed) to the left of the weather
+icon, and tapping it opens a full-screen editor with +/− buttons that
+accelerate as you hold them and an AM/PM toggle. Closing it — the ✕ or a swipe
+down — returns to the weather page. It can also be set from a **Bedroom Alarm
+card on the Priors Hill dashboard** with a time picker, the arm toggle and the
+next-alarm readout:
 
 ```yaml
 type: entities

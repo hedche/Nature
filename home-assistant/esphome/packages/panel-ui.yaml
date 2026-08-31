@@ -59,10 +59,12 @@ globals:
   - id: art_url
     type: std::string
     initial_value: '""'
-  # Alarm drawer state. alarm_h/alarm_m are the panel's working copy of the
-  # wake-up time (24h); -1 hours means HA hasn't said yet, and the drawer
-  # shows --:-- and refuses to commit. alarm_repeat counts the long-press
-  # repeats of the current hold so alarm_step can accelerate.
+  # Alarm state. alarm_h/alarm_m are the panel's working copy of the wake-up
+  # time (24h); -1 hours means HA hasn't said yet, and both the weather-page
+  # chip and the editor show --:-- and refuse to commit. alarm_repeat counts
+  # the long-press repeats of the current hold so alarm_step can accelerate;
+  # alarm_armed_s is the raw arm-flag state ("on"/"off"/anything else =
+  # unknown) so alarm_render can paint chip and editor from one place.
   - id: alarm_open
     type: bool
     initial_value: "false"
@@ -75,6 +77,9 @@ globals:
   - id: alarm_repeat
     type: int
     initial_value: "0"
+  - id: alarm_armed_s
+    type: std::string
+    initial_value: '"unknown"'
 
 script:
   # ---------- Touch gestures ----------
@@ -138,14 +143,10 @@ script:
   # the bottom band (y > 380) are ignored so dragging the volume slider isn't
   # read as a swipe. Other pages have nothing draggable, so the whole screen
   # swipes there — the lights page's bottom row would otherwise be dead.
-  #
-  # Vertical edge swipes open the drawers: down from the top edge for
-  # settings, up from the bottom edge for the alarm. The open checks run
-  # before the close checks so a gesture that closes one drawer cannot fall
-  # through and immediately open the other.
   - id: touch_end
     then:
-      # Swipe down from the top edge -> settings drawer.
+      # Swipe down from the top edge -> settings drawer (not over the alarm
+      # editor, which is modal).
       - if:
           condition:
             and:
@@ -155,20 +156,6 @@ script:
               - lambda: "return id(touch_last_y) - id(touch_start_y) > 70;"
           then:
             - script.execute: open_settings
-      # Swipe up from the bottom edge -> alarm drawer. The |dx| bound is what
-      # keeps a volume-slider drag (music page, same bottom band) from
-      # reading as an open: a slider drag is mostly horizontal, this gesture
-      # is mostly vertical.
-      - if:
-          condition:
-            and:
-              - not: lvgl.is_paused
-              - lambda: "return !id(settings_open) && !id(alarm_open);"
-              - lambda: "return id(touch_start_y) >= 420;"
-              - lambda: "return id(touch_start_y) - id(touch_last_y) > 70;"
-              - lambda: "return std::abs(id(touch_last_x) - id(touch_start_x)) < 60;"
-          then:
-            - script.execute: open_alarm
       # Swipe up anywhere while the settings drawer is open -> close it.
       - if:
           condition:
@@ -177,7 +164,8 @@ script:
               - lambda: "return id(touch_start_y) - id(touch_last_y) > 70;"
           then:
             - script.execute: close_settings
-      # Swipe down anywhere while the alarm drawer is open -> close it.
+      # Swipe down anywhere while the alarm editor is open -> close it (the
+      # Close button works too; this is the fling-it-away affordance).
       - if:
           condition:
             and:
@@ -233,25 +221,35 @@ script:
           value: "false"
       - lvgl.widget.hide: settings_panel
 
-  # ---------- Alarm drawer ----------
-  # Mirror image of the settings drawer, swiped up from the bottom edge. It
-  # edits the wake-up time behind ${alarm_time_entity}: the working copy is
-  # alarm_h/alarm_m, every step renders locally, and one
-  # input_datetime.set_datetime goes to HA per interaction — on button
-  # release / AM-PM tap — so a held button doesn't fire a call every 100ms.
+  # ---------- Alarm editor ----------
+  # A modal page (skip: true keeps it out of the swipe rotation), opened by
+  # tapping the alarm chip on the weather page and closed by its Close
+  # button or a swipe down. It edits the wake-up time behind
+  # ${alarm_time_entity}: the working copy is alarm_h/alarm_m, every step
+  # renders locally, and one input_datetime.set_datetime goes to HA per
+  # interaction — on button release / AM-PM tap — so a held button doesn't
+  # fire a call every 100ms. alarm_open (not page.is_showing) gates the
+  # gesture scripts, and closing always returns to the weather page the
+  # chip lives on.
   - id: open_alarm
     then:
       - globals.set:
           id: alarm_open
           value: "true"
       - script.execute: alarm_render
-      - lvgl.widget.show: alarm_panel
+      - lvgl.page.show:
+          id: alarm_page
+          animation: OVER_BOTTOM
+          time: 250ms
   - id: close_alarm
     then:
       - globals.set:
           id: alarm_open
           value: "false"
-      - lvgl.widget.hide: alarm_panel
+      - lvgl.page.show:
+          id: weather_page
+          animation: OUT_BOTTOM
+          time: 250ms
   # One press or hold-repeat of the +/- buttons, dir = +1/-1. The step grows
   # with the hold (alarm_repeat counts LVGL's long-press repeats, one every
   # 100ms after the first 400ms): the first second nudges a minute at a
@@ -274,28 +272,65 @@ script:
           id(alarm_h) = t / 60;
           id(alarm_m) = t % 60;
       - script.execute: alarm_render
-  # Redraw the drawer from alarm_h/alarm_m: 12-hour time and the AM/PM
-  # segment's checked states (set here and only here, like the light tiles,
-  # so the segment can never disagree with the hour it annotates).
+  # Redraw everything the alarm owns — the weather-page chip and the editor
+  # — from alarm_h/alarm_m/alarm_armed_s. Both surfaces are painted here and
+  # only here, like the light tiles, so the chip can never disagree with the
+  # editor and the AM/PM segment can never disagree with the hour.
   - id: alarm_render
     then:
       - lambda: |-
-          if (id(alarm_h) < 0) {
+          const bool known = id(alarm_h) >= 0;
+          const bool armed = id(alarm_armed_s) == "on";
+          const bool dead  = !(armed || id(alarm_armed_s) == "off");
+
+          // ---- editor: big time + AM/PM segment ----
+          if (known) {
+            int h12 = id(alarm_h) % 12;
+            if (h12 == 0) h12 = 12;
+            lv_label_set_text_fmt(id(lbl_alarm_time), "%d:%02d", h12, id(alarm_m));
+            const bool pm = id(alarm_h) >= 12;
+            for (lv_obj_t *o : {id(btn_am), id(lbl_am)}) {
+              if (pm) lv_obj_remove_state(o, LV_STATE_CHECKED); else lv_obj_add_state(o, LV_STATE_CHECKED);
+            }
+            for (lv_obj_t *o : {id(btn_pm), id(lbl_pm)}) {
+              if (pm) lv_obj_add_state(o, LV_STATE_CHECKED); else lv_obj_remove_state(o, LV_STATE_CHECKED);
+            }
+          } else {
             lv_label_set_text(id(lbl_alarm_time), "--:--");
             for (lv_obj_t *o : {id(btn_am), id(lbl_am), id(btn_pm), id(lbl_pm)})
               lv_obj_remove_state(o, LV_STATE_CHECKED);
-            return;
           }
-          int h12 = id(alarm_h) % 12;
-          if (h12 == 0) h12 = 12;
-          lv_label_set_text_fmt(id(lbl_alarm_time), "%d:%02d", h12, id(alarm_m));
-          const bool pm = id(alarm_h) >= 12;
-          for (lv_obj_t *o : {id(btn_am), id(lbl_am)}) {
-            if (pm) lv_obj_remove_state(o, LV_STATE_CHECKED); else lv_obj_add_state(o, LV_STATE_CHECKED);
+
+          // ---- editor: armed status line ----
+          lv_obj_t *st = id(lbl_alarm_status);
+          lv_label_set_text(st, dead ? "Unavailable" : armed ? "Armed" : "Not armed");
+          lv_obj_set_style_text_color(st,
+            lv_color_hex(dead ? 0xC9776B : armed ? 0xEFB44C : 0x808080), 0);
+
+          // ---- weather-page chip ----
+          // Armed is the state worth reading across a dark room, so it alone
+          // gets the amber; disarmed recedes to grey and keeps the time
+          // legible, and the whole chip greys out when HA has not spoken.
+          if (known) {
+            int h12 = id(alarm_h) % 12;
+            if (h12 == 0) h12 = 12;
+            lv_label_set_text_fmt(id(lbl_chip_time), "%d:%02d", h12, id(alarm_m));
+            lv_label_set_text(id(lbl_chip_ampm), id(alarm_h) >= 12 ? "PM" : "AM");
+          } else {
+            lv_label_set_text(id(lbl_chip_time), "--:--");
+            lv_label_set_text(id(lbl_chip_ampm), "");
           }
-          for (lv_obj_t *o : {id(btn_pm), id(lbl_pm)}) {
-            if (pm) lv_obj_add_state(o, LV_STATE_CHECKED); else lv_obj_remove_state(o, LV_STATE_CHECKED);
-          }
+          const uint32_t fg = dead ? 0x565C64 : armed ? 0xEFB44C : 0x9AA0A8;
+          lv_obj_set_style_text_color(id(lbl_chip_icon), lv_color_hex(fg), 0);
+          lv_obj_set_style_text_color(id(lbl_chip_time), lv_color_hex(dead ? 0x565C64 : 0xE0E0E0), 0);
+          lv_obj_set_style_text_color(id(lbl_chip_ampm), lv_color_hex(dead ? 0x565C64 : 0x9AA0A8), 0);
+          lv_obj_set_style_text_color(id(lbl_chip_state), lv_color_hex(fg), 0);
+          lv_label_set_text(id(lbl_chip_state), dead ? "Unavailable" : armed ? "Armed" : "Off");
+          // mdi alarm / alarm-off — the state word underneath says the same
+          // thing in words, so the pair only has to be distinguishable.
+          lv_label_set_text(id(lbl_chip_icon), armed ? "\U000F0020" : "\U000F0023");
+          lv_obj_set_style_border_color(id(chip_alarm),
+            lv_color_hex(armed ? 0x5A4520 : 0x2A2F36), 0);
   - id: alarm_commit
     then:
       - if:
@@ -310,6 +345,20 @@ script:
                 data:
                   entity_id: ${alarm_time_entity}
                   time: !lambda 'return str_sprintf("%02d:%02d:00", id(alarm_h), id(alarm_m));'
+  # Chip tap -> editor. Same three guards as the light tiles: a page swipe
+  # that starts and ends on the chip must not open it, the touch that woke a
+  # dimmed screen must not either, and the settings drawer overlaps the chip
+  # so its tap-outside-to-dismiss must not fall through.
+  - id: tap_alarm_chip
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return !id(wake_tap) && !id(settings_open) &&
+                     std::abs(id(touch_last_x) - id(touch_start_x)) < 24 &&
+                     std::abs(id(touch_last_y) - id(touch_start_y)) < 24;
+          then:
+            - script.execute: open_alarm
 
   # ---------- Data -> screen ----------
   # The only way data reaches this UI. Each script takes the raw value as `x`
@@ -423,9 +472,9 @@ script:
           id: lbl_ip
           text: !lambda "return x;"
 
-  # Alarm drawer: HA sends the time as "HH:MM:SS" (24h); anything
-  # unparsable — "unavailable", "unknown", a blank — renders as --:-- and
-  # blocks committing until HA speaks again.
+  # Alarm: HA sends the time as "HH:MM:SS" (24h); anything unparsable —
+  # "unavailable", "unknown", a blank — renders as --:-- on both the chip and
+  # the editor, and blocks committing until HA speaks again.
   - id: ui_alarm_time
     parameters:
       x: string
@@ -443,18 +492,8 @@ script:
     parameters:
       x: string
     then:
-      - lambda: |-
-          lv_obj_t *l = id(lbl_alarm_status);
-          if (x == "on") {
-            lv_label_set_text(l, "Armed");
-            lv_obj_set_style_text_color(l, lv_color_hex(0xEFB44C), 0);
-          } else if (x == "off") {
-            lv_label_set_text(l, "Not armed");
-            lv_obj_set_style_text_color(l, lv_color_hex(0x808080), 0);
-          } else {
-            lv_label_set_text(l, "Unavailable");
-            lv_obj_set_style_text_color(l, lv_color_hex(0xC9776B), 0);
-          }
+      - lambda: "id(alarm_armed_s) = x;"
+      - script.execute: alarm_render
 
   # ---------- Lights page ----------
   # n is the 1-based tile index, x the raw HA state string. "on" -> the tile
@@ -490,9 +529,11 @@ script:
   #    tile would toggle it. The gesture scripts already record the travel.
   #  * wake_tap: the touch that woke a dimmed/paused screen lands on a tile
   #    too, and nobody wants the stair light toggled by reaching for the panel.
-  #  * settings_open / alarm_open: the drawers only cover part of the screen
-  #    (top 320px and bottom 360px), so LVGL happily delivers a "tap outside
-  #    to dismiss" to the tiles left showing beside them.
+  #  * settings_open: the drawer only covers the top 320px, so LVGL happily
+  #    delivers a "tap outside to dismiss" below it to the bottom tiles and
+  #    the All-off bar underneath. alarm_open rides along: the editor is a
+  #    full page so nothing shows through today, but the guard costs nothing
+  #    and outlives that layout choice.
   - id: tap_light
     parameters:
       n: int
@@ -604,8 +645,8 @@ font:
       - "\U000F0425" # power
       - "\U000F0709" # restart
       - "\U000F0156" # close
-      - "\U000F0415" # plus  (alarm drawer)
-      - "\U000F0374" # minus (alarm drawer)
+      - "\U000F0415" # plus  (alarm editor)
+      - "\U000F0374" # minus (alarm editor)
       # Lights page tile icons. The device YAML picks one per tile through
       # ${light_N_icon}; anything it picks must be in this list, so it is
       # deliberately wider than what is in use today.
@@ -623,6 +664,13 @@ font:
       - "\U000F02E3" # bed
       - "\U000F04B9" # sofa
       - "\U000F12CD" # lightbulb-group-off (All off)
+  # Weather-page alarm chip only — the 42px icons are too heavy for it.
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_28
+    size: 28
+    glyphs:
+      - "\U000F0020" # alarm      (armed)
+      - "\U000F0023" # alarm-off  (not armed)
   - file: "fonts/materialdesignicons-webfont.ttf"
     id: mdi_96
     size: 96
@@ -766,221 +814,67 @@ lvgl:
                       text_font: font_small
                       text_color: 0x808080
                       align: BOTTOM_RIGHT
-      # Alarm drawer: swipe up from the bottom edge to open, swipe down or
-      # Close to dismiss — the settings drawer's mirror image, also on the
-      # top layer so it overlays any page. The layout is one row of
-      # minus / big time / plus, an AM-PM segment under it, and the armed
-      # status along the bottom.
-      - obj:
-          id: alarm_panel
-          hidden: true
-          align: BOTTOM_MID
-          width: 480
-          height: 360
-          bg_color: 0x14181D
-          border_width: 0
-          radius: 0
-          pad_all: 24
-          widgets:
-            - label:
-                text: "Alarm"
-                text_font: font_med
-                text_color: 0xFFFFFF
-                align: TOP_LEFT
-            - button:
-                align: TOP_RIGHT
-                width: 56
-                height: 56
-                radius: 28
-                widgets:
-                  - label:
-                      text: "\U000F0156" # close
-                      text_font: mdi_42
-                      align: CENTER
-                on_click:
-                  - script.execute: close_alarm
-            # Tap = one minute, hold = accelerating repeats (alarm_step).
-            # wake_tap mirrors the light tiles: a touch that only woke a
-            # dimmed screen must not edit the alarm. The single commit per
-            # interaction rides on the release.
-            - button:
-                id: btn_alarm_minus
-                align: LEFT_MID
-                y: 8
-                width: 88
-                height: 88
-                radius: 44
-                widgets:
-                  - label:
-                      text: "\U000F0374" # minus
-                      text_font: mdi_42
-                      align: CENTER
-                on_press:
-                  - if:
-                      condition:
-                        lambda: "return !id(wake_tap);"
-                      then:
-                        - globals.set:
-                            id: alarm_repeat
-                            value: "0"
-                        - script.execute:
-                            id: alarm_step
-                            dir: -1
-                on_long_press_repeat:
-                  - if:
-                      condition:
-                        lambda: "return !id(wake_tap);"
-                      then:
-                        - script.execute:
-                            id: alarm_step
-                            dir: -1
-                on_release:
-                  - if:
-                      condition:
-                        lambda: "return !id(wake_tap);"
-                      then:
-                        - script.execute: alarm_commit
-            - label:
-                id: lbl_alarm_time
-                text: "--:--"
-                text_font: font_big
-                text_color: 0xFFFFFF
-                align: CENTER
-                y: 8
-                width: 240
-                text_align: CENTER
-            - button:
-                id: btn_alarm_plus
-                align: RIGHT_MID
-                y: 8
-                width: 88
-                height: 88
-                radius: 44
-                widgets:
-                  - label:
-                      text: "\U000F0415" # plus
-                      text_font: mdi_42
-                      align: CENTER
-                on_press:
-                  - if:
-                      condition:
-                        lambda: "return !id(wake_tap);"
-                      then:
-                        - globals.set:
-                            id: alarm_repeat
-                            value: "0"
-                        - script.execute:
-                            id: alarm_step
-                            dir: 1
-                on_long_press_repeat:
-                  - if:
-                      condition:
-                        lambda: "return !id(wake_tap);"
-                      then:
-                        - script.execute:
-                            id: alarm_step
-                            dir: 1
-                on_release:
-                  - if:
-                      condition:
-                        lambda: "return !id(wake_tap);"
-                      then:
-                        - script.execute: alarm_commit
-            # AM/PM segment. Not checkable buttons: like the light tiles,
-            # the checked look is set only by alarm_render, so the segment
-            # can never disagree with the hour it annotates. The travel
-            # guard keeps a close-swipe that starts here from flipping it.
-            - obj:
-                align: CENTER
-                y: 96
-                width: 176
-                height: 48
-                radius: 24
-                bg_opa: COVER
-                bg_color: 0x1B1F25
-                border_width: 1
-                border_color: 0x2A2F36
-                pad_all: 4
-                scrollable: false
-                layout:
-                  type: flex
-                  flex_flow: ROW
-                  pad_column: 0
-                widgets:
-                  - button:
-                      id: btn_am
-                      width: 84
-                      height: 40
-                      radius: 18
-                      pad_all: 0
-                      shadow_width: 0
-                      bg_opa: COVER
-                      bg_color: 0x1B1F25
-                      checked:
-                        bg_color: 0xEFB44C
-                      widgets:
-                        - label:
-                            id: lbl_am
-                            text: "AM"
-                            text_font: font_tile
-                            text_color: 0x9AA0A8
-                            align: CENTER
-                            checked:
-                              text_color: 0x1E1608
-                      on_click:
-                        - if:
-                            condition:
-                              lambda: |-
-                                return !id(wake_tap) && id(alarm_h) >= 12 &&
-                                       std::abs(id(touch_last_x) - id(touch_start_x)) < 24 &&
-                                       std::abs(id(touch_last_y) - id(touch_start_y)) < 24;
-                            then:
-                              - lambda: "id(alarm_h) -= 12;"
-                              - script.execute: alarm_render
-                              - script.execute: alarm_commit
-                  - button:
-                      id: btn_pm
-                      width: 84
-                      height: 40
-                      radius: 18
-                      pad_all: 0
-                      shadow_width: 0
-                      bg_opa: COVER
-                      bg_color: 0x1B1F25
-                      checked:
-                        bg_color: 0xEFB44C
-                      widgets:
-                        - label:
-                            id: lbl_pm
-                            text: "PM"
-                            text_font: font_tile
-                            text_color: 0x9AA0A8
-                            align: CENTER
-                            checked:
-                              text_color: 0x1E1608
-                      on_click:
-                        - if:
-                            condition:
-                              lambda: |-
-                                return !id(wake_tap) && id(alarm_h) >= 0 && id(alarm_h) < 12 &&
-                                       std::abs(id(touch_last_x) - id(touch_start_x)) < 24 &&
-                                       std::abs(id(touch_last_y) - id(touch_start_y)) < 24;
-                            then:
-                              - lambda: "id(alarm_h) += 12;"
-                              - script.execute: alarm_render
-                              - script.execute: alarm_commit
-            # Whether button 2 has this armed — display only; arming stays
-            # with the physical button (and its spoken confirmation).
-            - label:
-                id: lbl_alarm_status
-                text: "..."
-                text_font: font_small
-                text_color: 0x808080
-                align: BOTTOM_MID
   pages:
     - id: weather_page
       bg_color: 0x000000
       widgets:
+        # Alarm chip, in the dead space left of the weather icon: bell, the
+        # wake-up time, and whether button 2 has it armed. Tapping it opens
+        # the alarm editor — the only way in, which is why it looks like a
+        # button rather than a readout. alarm_render owns every colour and
+        # string in here; nothing is set at build time except the fallbacks.
+        - button:
+            id: chip_alarm
+            align: TOP_LEFT
+            x: 16
+            y: 24
+            width: 160
+            height: 130
+            radius: 24
+            pad_all: 0
+            shadow_width: 0
+            bg_opa: COVER
+            bg_color: 0x101418
+            border_width: 1
+            border_color: 0x2A2F36
+            pressed:
+              bg_color: 0x1B1F25
+              border_color: 0x9AA0A8
+            widgets:
+              - label:
+                  id: lbl_chip_icon
+                  text: "\U000F0023" # alarm-off until HA speaks
+                  text_font: mdi_28
+                  text_color: 0x565C64
+                  align: TOP_LEFT
+                  x: 16
+                  y: 14
+              - label:
+                  id: lbl_chip_ampm
+                  text: ""
+                  text_font: font_tiny
+                  text_color: 0x565C64
+                  align: TOP_RIGHT
+                  x: -16
+                  y: 20
+              - label:
+                  id: lbl_chip_time
+                  text: "--:--"
+                  text_font: font_med
+                  text_color: 0x565C64
+                  align: LEFT_MID
+                  x: 16
+                  y: 0
+              - label:
+                  id: lbl_chip_state
+                  text: "..."
+                  text_font: font_tiny
+                  text_color: 0x565C64
+                  align: BOTTOM_LEFT
+                  x: 16
+                  y: -14
+            on_click:
+              - script.execute: tap_alarm_chip
         - label:
             id: lbl_weather_icon
             text: "\U000F0590"
@@ -1231,3 +1125,220 @@ lvgl:
                         x: 78
                   on_click:
                     - script.execute: tap_all_off
+    # Alarm editor. Last in the list on purpose: LVGL shows the first page
+    # at boot, and the panel must wake on the weather page, not in here.
+    #
+    # A page rather than a drawer so it gets the whole screen, but
+    # `skip: true` keeps it out of the left/right swipe rotation — it is
+    # reachable only by tapping the weather page's alarm chip, and Close (or
+    # a swipe down) always goes back there. The gesture scripts gate on the
+    # alarm_open global, not on which page is showing, so the two stay in
+    # step even mid-animation.
+    - id: alarm_page
+      skip: true
+      bg_color: 0x14181D
+      pad_all: 0
+      scrollable: false
+      widgets:
+        - label:
+            text: "Alarm"
+            text_font: font_med
+            text_color: 0xFFFFFF
+            align: TOP_LEFT
+            x: 28
+            y: 28
+        - button:
+            align: TOP_RIGHT
+            x: -22
+            y: 22
+            width: 56
+            height: 56
+            radius: 28
+            widgets:
+              - label:
+                  text: "\U000F0156" # close
+                  text_font: mdi_42
+                  align: CENTER
+            on_click:
+              - script.execute: close_alarm
+        # Tap = one minute, hold = accelerating repeats (alarm_step).
+        # wake_tap mirrors the light tiles: a touch that only woke a
+        # dimmed screen must not edit the alarm. The single commit per
+        # interaction rides on the release.
+        - button:
+            id: btn_alarm_minus
+            align: LEFT_MID
+            x: 28
+            y: -12
+            width: 88
+            height: 88
+            radius: 44
+            widgets:
+              - label:
+                  text: "\U000F0374" # minus
+                  text_font: mdi_42
+                  align: CENTER
+            on_press:
+              - if:
+                  condition:
+                    lambda: "return !id(wake_tap);"
+                  then:
+                    - globals.set:
+                        id: alarm_repeat
+                        value: "0"
+                    - script.execute:
+                        id: alarm_step
+                        dir: -1
+            on_long_press_repeat:
+              - if:
+                  condition:
+                    lambda: "return !id(wake_tap);"
+                  then:
+                    - script.execute:
+                        id: alarm_step
+                        dir: -1
+            on_release:
+              - if:
+                  condition:
+                    lambda: "return !id(wake_tap);"
+                  then:
+                    - script.execute: alarm_commit
+        - label:
+            id: lbl_alarm_time
+            text: "--:--"
+            text_font: font_big
+            text_color: 0xFFFFFF
+            align: CENTER
+            y: -12
+            width: 240
+            text_align: CENTER
+        - button:
+            id: btn_alarm_plus
+            align: RIGHT_MID
+            x: -28
+            y: -12
+            width: 88
+            height: 88
+            radius: 44
+            widgets:
+              - label:
+                  text: "\U000F0415" # plus
+                  text_font: mdi_42
+                  align: CENTER
+            on_press:
+              - if:
+                  condition:
+                    lambda: "return !id(wake_tap);"
+                  then:
+                    - globals.set:
+                        id: alarm_repeat
+                        value: "0"
+                    - script.execute:
+                        id: alarm_step
+                        dir: 1
+            on_long_press_repeat:
+              - if:
+                  condition:
+                    lambda: "return !id(wake_tap);"
+                  then:
+                    - script.execute:
+                        id: alarm_step
+                        dir: 1
+            on_release:
+              - if:
+                  condition:
+                    lambda: "return !id(wake_tap);"
+                  then:
+                    - script.execute: alarm_commit
+        # AM/PM segment. Not checkable buttons: like the light tiles,
+        # the checked look is set only by alarm_render, so the segment
+        # can never disagree with the hour it annotates. The travel
+        # guard keeps a close-swipe that starts here from flipping it.
+        - obj:
+            align: CENTER
+            y: 84
+            width: 176
+            height: 48
+            radius: 24
+            bg_opa: COVER
+            bg_color: 0x1B1F25
+            border_width: 1
+            border_color: 0x2A2F36
+            pad_all: 4
+            scrollable: false
+            layout:
+              type: flex
+              flex_flow: ROW
+              pad_column: 0
+            widgets:
+              - button:
+                  id: btn_am
+                  width: 84
+                  height: 40
+                  radius: 18
+                  pad_all: 0
+                  shadow_width: 0
+                  bg_opa: COVER
+                  bg_color: 0x1B1F25
+                  checked:
+                    bg_color: 0xEFB44C
+                  widgets:
+                    - label:
+                        id: lbl_am
+                        text: "AM"
+                        text_font: font_tile
+                        text_color: 0x9AA0A8
+                        align: CENTER
+                        checked:
+                          text_color: 0x1E1608
+                  on_click:
+                    - if:
+                        condition:
+                          lambda: |-
+                            return !id(wake_tap) && id(alarm_h) >= 12 &&
+                                   std::abs(id(touch_last_x) - id(touch_start_x)) < 24 &&
+                                   std::abs(id(touch_last_y) - id(touch_start_y)) < 24;
+                        then:
+                          - lambda: "id(alarm_h) -= 12;"
+                          - script.execute: alarm_render
+                          - script.execute: alarm_commit
+              - button:
+                  id: btn_pm
+                  width: 84
+                  height: 40
+                  radius: 18
+                  pad_all: 0
+                  shadow_width: 0
+                  bg_opa: COVER
+                  bg_color: 0x1B1F25
+                  checked:
+                    bg_color: 0xEFB44C
+                  widgets:
+                    - label:
+                        id: lbl_pm
+                        text: "PM"
+                        text_font: font_tile
+                        text_color: 0x9AA0A8
+                        align: CENTER
+                        checked:
+                          text_color: 0x1E1608
+                  on_click:
+                    - if:
+                        condition:
+                          lambda: |-
+                            return !id(wake_tap) && id(alarm_h) >= 0 && id(alarm_h) < 12 &&
+                                   std::abs(id(touch_last_x) - id(touch_start_x)) < 24 &&
+                                   std::abs(id(touch_last_y) - id(touch_start_y)) < 24;
+                        then:
+                          - lambda: "id(alarm_h) += 12;"
+                          - script.execute: alarm_render
+                          - script.execute: alarm_commit
+        # Whether button 2 has this armed — display only; arming stays
+        # with the physical button (and its spoken confirmation).
+        - label:
+            id: lbl_alarm_status
+            text: "..."
+            text_font: font_small
+            text_color: 0x808080
+            align: CENTER
+            y: 152

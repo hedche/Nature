@@ -54,9 +54,12 @@ The panel's screen is split so the same UI runs on the Mac as on the wall:
   - `-s sim_drawer true` opens the settings drawer. It lives on the LVGL top
     layer rather than being a page, so `sim_page` cannot select it and
     `./sim.sh shot` would otherwise never photograph it.
-  - `-s sim_alarm true` opens the alarm drawer (swipe up from the bottom edge
-    on the device) — top-layer too, so `sim_page` cannot select it either;
-    `-s sim_alarm_time unavailable` shows the not-yet-known `--:--` state.
+  - The alarm editor **is** a page (`-s sim_page alarm_page`), but a
+    `skip: true` one: it is reachable only by tapping the weather page's alarm
+    chip, never by swiping. It is also last in the `pages:` list on purpose —
+    LVGL shows the first page at boot, and that must stay `weather_page`.
+    `-s sim_alarm_time unavailable` shows the not-yet-known `--:--` state on
+    both the chip and the editor.
   - `-s sim_temp_min NAN` (uppercase — lowercase `nan` will not compile)
     reproduces an unavailable Home Assistant sensor, which is what the panel
     shows after every HA restart.
