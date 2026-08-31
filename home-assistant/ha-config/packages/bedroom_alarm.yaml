@@ -1,0 +1,318 @@
+# Bedroom wake-up alarm, armed from the Zigbee TS0044 4-gang remote
+# (button 2, short press) and rung on the native Sonos. The time is set
+# from the "Bedroom Alarm" card on the Priors Hill dashboard.
+#
+# One-shot by design: a press arms the alarm for the *next* wake-up time and
+# the ring disarms it again, so an alarm is never left ringing on a morning
+# it was not asked for. Pressing the button while it is ringing dismisses it.
+# To make it repeat daily instead, delete the `input_boolean.turn_off` at the
+# end of script.bedroom_alarm_ring.
+#
+# Button map on the remote after this package:
+#   1  toggle Lydia's Light      (automations.yaml on hassio)
+#   2  arm / disarm this alarm   (here)
+#   3  free
+#   4  pink noise / handpan      (sleep_sounds.yaml)
+#
+# `device_id` is this instance's ZHA device for the remote, the same one
+# sleep_sounds.yaml uses. The TS0044 exposes device triggers only (no
+# entities), so there is no portable entity-based alternative; re-pairing
+# the remote means re-capturing it.
+
+input_boolean:
+  bedroom_alarm:
+    name: Bedroom Alarm
+    icon: mdi:alarm
+
+input_datetime:
+  # Time only, no date. Deliberately no `initial:` — for input_datetime that
+  # would win over the restored value and reset the wake-up time on every
+  # Home Assistant restart. The time is user state, so it persists in
+  # .storage like the arm flag does; on a from-scratch rebuild it starts at
+  # 00:00 and must be set once from the dashboard card.
+  bedroom_alarm_time:
+    name: Bedroom Alarm Time
+    has_date: false
+    has_time: true
+    icon: mdi:clock-outline
+
+template:
+  - sensor:
+      - name: Bedroom alarm next
+        unique_id: bedroom_alarm_next
+        icon: mdi:alarm
+        state: >-
+          {% if is_state('script.bedroom_alarm_ring', 'on') %}
+            Ringing
+          {% elif is_state('input_boolean.bedroom_alarm', 'on') %}
+            {% set secs = state_attr('input_datetime.bedroom_alarm_time', 'timestamp') %}
+            {% if secs is none %}
+              Unknown
+            {% elif (secs | int(0)) == 0 %}
+              Time not set
+            {% else %}
+              {% set at = today_at('00:00') + timedelta(seconds = secs | int) %}
+              {{ ('Today ' if at > now() else 'Tomorrow ') ~ at.strftime('%H:%M') }}
+            {% endif %}
+          {% else %}
+            Not set
+          {% endif %}
+
+script:
+  # Spoken confirmation on the bedroom Sonos.
+  #
+  # `announce: true` silently does nothing on Sonos, so this snapshots the
+  # speaker, plays the TTS as ordinary media and restores — the same shape
+  # as the host's bedroom_voice_reply script, which routes Atom Echo replies
+  # here for the same reason. The snapshot is what lets a confirmation
+  # interrupt a running sleep sound and hand it back afterwards.
+  #
+  # The time is spelled out into words here rather than handed to Piper as
+  # digits: espeak-ng's normaliser reads "8:50 am" as "eight fifty" plus the
+  # *word* "am" (as in "I am"), which is what a listener hears as wrong.
+  # Keeping the wording in the script means the callers pass only "set" or
+  # "turned off" and every phrasing decision lives in one place.
+  bedroom_alarm_say:
+    alias: Bedroom alarm spoken confirmation
+    mode: queued
+    max: 5
+    fields:
+      state_word:
+        description: How the alarm changed — reads as "Alarm <state_word> for <time>"
+        example: set
+    sequence:
+      - variables:
+          spoken_time: >-
+            {% set secs = state_attr('input_datetime.bedroom_alarm_time', 'timestamp') | int(31800) %}
+            {% set h = (secs // 3600) % 24 %}
+            {% set m = (secs % 3600) // 60 %}
+            {% set ones = ['zero','one','two','three','four','five','six','seven','eight',
+                           'nine','ten','eleven','twelve','thirteen','fourteen','fifteen',
+                           'sixteen','seventeen','eighteen','nineteen'] %}
+            {% set tens = ['','','twenty','thirty','forty','fifty'] %}
+            {% set hour_word = ones[(h % 12) if (h % 12) else 12] %}
+            {% set minute_word =
+                 '' if m == 0
+                 else ('oh ' ~ ones[m] if m < 10
+                 else (ones[m] if m < 20
+                 else tens[m // 10] ~ (' ' ~ ones[m % 10] if m % 10 else ''))) %}
+            {{ (hour_word ~ ' ' ~ minute_word) | trim }} {{ 'A M' if h < 12 else 'P M' }}
+      - action: sonos.snapshot
+        data:
+          entity_id: media_player.bedroom_sonos
+          with_group: false
+      # Quieter than the sleep sounds it interrupts (pink noise 0.18, handpan
+      # 0.10), because this fires at the bedside at bedtime and arrives with
+      # no fade — 0.25 was startling. The snapshot above means whatever was
+      # playing gets its own volume back afterwards.
+      - action: media_player.volume_set
+        target:
+          entity_id: media_player.bedroom_sonos
+        data:
+          volume_level: 0.12
+      - action: tts.speak
+        target:
+          entity_id: tts.piper
+        data:
+          media_player_entity_id: media_player.bedroom_sonos
+          message: "Alarm {{ state_word }} for {{ spoken_time }}"
+          cache: true
+      - wait_template: "{{ is_state('media_player.bedroom_sonos', 'playing') }}"
+        timeout: "00:00:05"
+      - wait_template: "{{ not is_state('media_player.bedroom_sonos', 'playing') }}"
+        timeout: "00:00:30"
+      - action: sonos.restore
+        data:
+          entity_id: media_player.bedroom_sonos
+          with_group: false
+
+  # The alarm itself: the handpan track faded in from near-silence over 90s.
+  #
+  # Deliberately no sonos.snapshot/restore around this one. At wake-up time
+  # the 12h pink noise from button 4 is very often still playing, and
+  # restoring would put the bedroom back to sleep the moment the alarm ended.
+  # Only the volume is captured and handed back.
+  #
+  # The MP3 comes off the QNAP over the Supervisor NFS media mount `qnap`
+  # (exported path /Audio), exactly like the sleep sounds. That mount is the
+  # one part of this that can quietly disappear — a NAS reboot orphans the
+  # bind mount while `ha mounts info` still reports it active (fix:
+  # `ha supervisor restart`) — and a silent alarm is the worst failure this
+  # package could have, so if the handpan is not audibly under way within
+  # 10s the script falls back to the local ringtone that needs no NAS.
+  bedroom_alarm_ring:
+    alias: Bedroom alarm ring
+    mode: single
+    sequence:
+      - variables:
+          prior_volume: >-
+            {{ state_attr('media_player.bedroom_sonos', 'volume_level') | float(0.15) }}
+      - action: media_player.volume_set
+        target:
+          entity_id: media_player.bedroom_sonos
+        data:
+          volume_level: 0.05
+      # continue_on_error so an unresolvable media source raises nothing and
+      # drops through to the fallback rather than aborting the whole alarm.
+      - action: media_player.play_media
+        continue_on_error: true
+        target:
+          entity_id: media_player.bedroom_sonos
+        data:
+          media_content_id: "media-source://media_source/local/qnap/Audio/Long/Handpan Music - 8h.mp3"
+          media_content_type: music
+      # Sonos reports the track URI it is actually on, so this distinguishes
+      # "the handpan started" from "the pink noise never stopped".
+      - wait_template: >-
+          {{ 'handpan' in ((state_attr('media_player.bedroom_sonos', 'media_content_id') or '') | lower) }}
+        timeout: "00:00:10"
+        continue_on_timeout: true
+      - choose:
+          - alias: Handpan is playing — fade it up, then hold
+            conditions:
+              - condition: template
+                value_template: >-
+                  {{ 'handpan' in ((state_attr('media_player.bedroom_sonos', 'media_content_id') or '') | lower) }}
+            sequence:
+              # 0.05 → 0.30 in ten 9s steps. The loop re-checks the arm flag
+              # each step so a dismiss during the fade is honoured within 9s
+              # instead of after the full 90s.
+              - repeat:
+                  sequence:
+                    - delay: "00:00:09"
+                    - action: media_player.volume_set
+                      target:
+                        entity_id: media_player.bedroom_sonos
+                      data:
+                        volume_level: "{{ 0.05 + 0.025 * repeat.index }}"
+                  until:
+                    - condition: or
+                      conditions:
+                        - condition: state
+                          entity_id: input_boolean.bedroom_alarm
+                          state: "off"
+                        - condition: template
+                          value_template: "{{ repeat.index >= 10 }}"
+              - wait_template: "{{ is_state('input_boolean.bedroom_alarm', 'off') }}"
+                timeout: "00:20:00"
+        default:
+          # No NAS media: loop the local ringtone the Echo timer uses. Not a
+          # gentle wake, but it is on the Pi's own filesystem and cannot fail
+          # the same way. ~8s per pass, hard-capped at ~15 min like the
+          # timer ring, so a wedged flag can never ring the bedroom forever.
+          - action: media_player.volume_set
+            target:
+              entity_id: media_player.bedroom_sonos
+            data:
+              volume_level: 0.20
+          - repeat:
+              sequence:
+                - action: media_player.play_media
+                  target:
+                    entity_id: media_player.bedroom_sonos
+                  data:
+                    media_content_id: media-source://media_source/local/timer_ring.wav
+                    media_content_type: music
+                - delay: "00:00:08"
+              until:
+                - condition: or
+                  conditions:
+                    - condition: state
+                      entity_id: input_boolean.bedroom_alarm
+                      state: "off"
+                    - condition: template
+                      value_template: "{{ repeat.index >= 110 }}"
+      - action: media_player.media_stop
+        target:
+          entity_id: media_player.bedroom_sonos
+      - action: media_player.volume_set
+        target:
+          entity_id: media_player.bedroom_sonos
+        data:
+          volume_level: "{{ prior_volume }}"
+      # Consume the one-shot. Disarming here rather than in the button
+      # automation is what keeps it silent: the spoken confirmations live on
+      # the button press, so the alarm ending never announces itself.
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.bedroom_alarm
+
+automation:
+  - id: bedroom_alarm_button
+    alias: Bedroom alarm — arm/disarm from button 2
+    description: >-
+      Master Bedroom Switch (TS0044) button 2 short press arms or disarms the
+      alarm, with a spoken confirmation on the bedroom Sonos. While the alarm
+      is ringing the same press dismisses it. Toggling the flag from the
+      dashboard instead is deliberately silent — a phone tap should not fire
+      the bedroom speaker.
+    triggers:
+      - trigger: device
+        device_id: 03160cee1a84a1189791e4fdffa02762
+        domain: zha
+        type: remote_button_short_press
+        subtype: button_2
+    conditions: []
+    actions:
+      - choose:
+          - alias: Ringing — dismiss, and say nothing at this hour
+            conditions:
+              - condition: state
+                entity_id: script.bedroom_alarm_ring
+                state: "on"
+            sequence:
+              # The ring script watches this flag; clearing it releases its
+              # wait so it stops the music and restores the volume itself,
+              # rather than being killed part-way through.
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.bedroom_alarm
+          - alias: Disarmed — arm it
+            conditions:
+              - condition: state
+                entity_id: input_boolean.bedroom_alarm
+                state: "off"
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.bedroom_alarm
+              - action: script.bedroom_alarm_say
+                data:
+                  state_word: set
+        default:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.bedroom_alarm
+          - action: script.bedroom_alarm_say
+            data:
+              state_word: turned off
+    mode: single
+
+  - id: bedroom_alarm_ring
+    alias: Bedroom alarm — ring at the set time
+    description: >-
+      Fires at input_datetime.bedroom_alarm_time, which a time trigger reads in
+      Home Assistant's own timezone (Europe/London) — so the wake-up time is
+      UK local and follows BST/GMT on its own. script.turn_on rather than
+      calling the script directly, so this automation does not sit blocked for
+      the twenty minutes the ring can last.
+    triggers:
+      - trigger: time
+        at: input_datetime.bedroom_alarm_time
+    conditions:
+      - condition: state
+        entity_id: input_boolean.bedroom_alarm
+        state: "on"
+      # A brand-new input_datetime starts at 00:00 and cannot be given a
+      # default (`initial:` would also overwrite the chosen time on every
+      # restart), so 00:00 is read as "never configured" rather than as a
+      # midnight alarm. Nobody sets a wake-up call for midnight; somebody
+      # absolutely does arm an alarm before noticing the time is blank.
+      - condition: template
+        value_template: >-
+          {{ (state_attr('input_datetime.bedroom_alarm_time', 'timestamp') | int(0)) > 0 }}
+    actions:
+      - action: script.turn_on
+        target:
+          entity_id: script.bedroom_alarm_ring
+    mode: single
