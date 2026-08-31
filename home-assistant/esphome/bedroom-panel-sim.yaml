@@ -17,6 +17,7 @@
 #
 #   ./sim.sh shot rain.png   -s sim_weather pouring -s sim_rain_mm 12.4
 #   ./sim.sh shot drawer.png -s sim_drawer true
+#   ./sim.sh shot alarm.png  -s sim_alarm true -s sim_alarm_time "06:45:00"
 #   ./sim.sh shot lights.png -s sim_page lights_page -s sim_light_2 on
 #   ./sim.sh shot press.png  -s sim_page lights_page -s sim_pressed true
 #   ./sim.sh shot dead.png   -s sim_temp_min NAN     # what a dead HA sensor looks like
@@ -48,6 +49,8 @@ substitutions:
   light_4_entity: switch.living_room_bookshelf_lamp
   light_4_name: "Bookshelf Lamp"
   light_4_icon: "\U000F125F" # bookshelf
+  # Alarm drawer: only named in the commit action, which never fires here.
+  alarm_time_entity: input_datetime.bedroom_alarm_time
 
   # ---- Mock data ----
   # Numeric values are pasted straight into C++, so `-s sim_temp_min NAN`
@@ -82,6 +85,13 @@ substitutions:
   sim_light_2: "off"
   sim_light_3: "on"
   sim_light_4: "unavailable"
+  # Alarm drawer. The time is the raw "HH:MM:SS" (24h) HA string — pass
+  # "unavailable" for the --:-- state; armed is on/off/unavailable. The
+  # drawer sits on the top layer like the settings one, so it needs its own
+  # switch: -s sim_alarm true
+  sim_alarm: "false"
+  sim_alarm_time: "07:30:00"
+  sim_alarm_armed: "on"
 
 esphome:
   name: ${name}
@@ -102,6 +112,11 @@ esphome:
               lambda: "return ${sim_drawer};"
             then:
               - script.execute: open_settings
+        - if:
+            condition:
+              lambda: "return ${sim_alarm};"
+            then:
+              - script.execute: open_alarm
         - if:
             condition:
               lambda: "return ${sim_pressed};"
@@ -162,6 +177,12 @@ esphome:
             id: ui_light
             n: 4
             x: "${sim_light_4}"
+        - script.execute:
+            id: ui_alarm_time
+            x: "${sim_alarm_time}"
+        - script.execute:
+            id: ui_alarm_armed
+            x: "${sim_alarm_armed}"
         # Let LVGL finish laying out and painting the values pushed above,
         # then photograph the frame from inside the process and exit.
         - if:

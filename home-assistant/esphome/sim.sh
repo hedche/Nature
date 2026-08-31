@@ -10,6 +10,7 @@
 #
 #   ./sim.sh shot pouring.png -s sim_weather pouring -s sim_rain_mm 12.4
 #   ./sim.sh shot music.png    -s sim_page music_page
+#   ./sim.sh shot alarm.png    -s sim_alarm true
 #   ./sim.sh shot              -s sim_page music_page   # defaults to sim-shot.png
 #   ./sim.sh                   -s sim_media_title "A very long track name ..."
 #

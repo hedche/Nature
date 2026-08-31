@@ -43,9 +43,10 @@ The panel's screen is split so the same UI runs on the Mac as on the wall:
   stale screen — that divergence is the main failure mode of this split.
 - The two targets must keep providing the IDs the UI package addresses:
   `lcd`, `panel_touch`, `backlight`, `panel_restart`, `${sonos_entity}`,
-  and `${light_N_entity}` / `${light_N_name}` / `${light_N_icon}` for
-  N = 1..4. An icon must be in the package's `mdi_42` glyph list — a glyph
-  the font was not built with renders as a box, not an error.
+  `${alarm_time_entity}`, and `${light_N_entity}` / `${light_N_name}` /
+  `${light_N_icon}` for N = 1..4. An icon must be in the package's `mdi_42`
+  glyph list — a glyph the font was not built with renders as a box, not an
+  error.
 - Exercise edge cases with substitutions, not by editing files:
   `./sim.sh shot long.png -s sim_media_title "a 90-character track name…"`.
 - Some states are reachable only via a substitution, and all are easy to
@@ -53,6 +54,9 @@ The panel's screen is split so the same UI runs on the Mac as on the wall:
   - `-s sim_drawer true` opens the settings drawer. It lives on the LVGL top
     layer rather than being a page, so `sim_page` cannot select it and
     `./sim.sh shot` would otherwise never photograph it.
+  - `-s sim_alarm true` opens the alarm drawer (swipe up from the bottom edge
+    on the device) — top-layer too, so `sim_page` cannot select it either;
+    `-s sim_alarm_time unavailable` shows the not-yet-known `--:--` state.
   - `-s sim_temp_min NAN` (uppercase — lowercase `nan` will not compile)
     reproduces an unavailable Home Assistant sensor, which is what the panel
     shows after every HA restart.

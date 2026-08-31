@@ -1,6 +1,8 @@
 # Bedroom wake-up alarm, armed from the Zigbee TS0044 4-gang remote
 # (button 2, short press) and rung on the native Sonos. The time is set
-# from the "Bedroom Alarm" card on the Priors Hill dashboard.
+# from the "Bedroom Alarm" card on the Priors Hill dashboard, or from the
+# bedroom panel's alarm drawer (swipe up from the panel's bottom edge —
+# home-assistant/esphome/, which calls input_datetime.set_datetime here).
 #
 # One-shot by design: a press arms the alarm for the *next* wake-up time and
 # the ring disarms it again, so an alarm is never left ringing on a morning

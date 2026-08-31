@@ -26,6 +26,12 @@ substitutions:
   light_4_entity: switch.living_room_bookshelf_lamp
   light_4_name: "Bookshelf Lamp"
   light_4_icon: "\U000F125F" # bookshelf
+  # Alarm drawer (swipe up from the bottom edge): the wake-up time and arm
+  # flag from ha-config/packages/bedroom_alarm.yaml. The drawer edits the
+  # time via input_datetime.set_datetime; arming stays with button 2 on the
+  # TS0044 remote.
+  alarm_time_entity: input_datetime.bedroom_alarm_time
+  alarm_armed_entity: input_boolean.bedroom_alarm
 
 esphome:
   name: ${name}
@@ -73,6 +79,8 @@ api:
           - script.execute: { id: ui_light, n: 2, x: "unavailable" }
           - script.execute: { id: ui_light, n: 3, x: "unavailable" }
           - script.execute: { id: ui_light, n: 4, x: "unavailable" }
+          - script.execute: { id: ui_alarm_time, x: "unavailable" }
+          - script.execute: { id: ui_alarm_armed, x: "unavailable" }
 
 ota:
   - platform: esphome
@@ -321,4 +329,20 @@ text_sensor:
       - script.execute:
           id: ui_light
           n: 4
+          x: !lambda "return x;"
+  # Alarm drawer: the raw "HH:MM:SS" time string and the arm flag go
+  # through as-is so "unavailable" can render honestly, like the tiles.
+  - platform: homeassistant
+    id: alarm_time
+    entity_id: ${alarm_time_entity}
+    on_value:
+      - script.execute:
+          id: ui_alarm_time
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: alarm_armed
+    entity_id: ${alarm_armed_entity}
+    on_value:
+      - script.execute:
+          id: ui_alarm_armed
           x: !lambda "return x;"

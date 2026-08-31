@@ -175,7 +175,9 @@ disarms it. Everything lives in `ha-config/packages/bedroom_alarm.yaml`: the
 wake-up time, a `sensor.bedroom_alarm_next` readout, the ring and confirmation
 scripts, and the two automations.
 
-The time comes from a **Bedroom Alarm card on the Priors Hill dashboard** — a
+The time is set from the **bedroom panel's alarm drawer** — swipe up from the
+bottom edge of the panel for +/− buttons (hold to accelerate) and an AM/PM
+toggle — or from a **Bedroom Alarm card on the Priors Hill dashboard** with a
 time picker, the arm toggle and the next-alarm readout:
 
 ```yaml
