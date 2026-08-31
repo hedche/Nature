@@ -8,6 +8,10 @@ metadata:
     app.kubernetes.io/component: web
 spec:
   replicas: 1
+  # RWO Ceph volume: the new pod cannot mount until the old one
+  # releases it, so an overlapping rollout deadlocks permanently.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: peanut
