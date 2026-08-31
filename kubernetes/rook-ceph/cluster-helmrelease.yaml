@@ -31,6 +31,12 @@ spec:
     clusterName: rook-ceph
     toolbox:
       enabled: true
+      resources:
+        limits:
+          memory: 256Mi
+        requests:
+          cpu: 50m
+          memory: 64Mi
     cephImage:
       repository: quay.io/ceph/ceph
       tag: v19.2.3
@@ -48,10 +54,72 @@ spec:
         ssl: true
       crashCollector:
         disable: false
+      # Every Ceph daemon otherwise gets a log-collector sidecar (100m + 100Mi
+      # each, 11 in total) writing logs to files under dataDirHostPath. Daemon
+      # logs stay available via `kubectl logs`.
       logCollector:
-        enabled: true
-        periodicity: daily
-        maxLogSize: 500M
+        enabled: false
+
+      # Cap the bluestore cache. Rook otherwise leaves osd_memory_target at 4Gi,
+      # far more than this ~2 GiB dataset needs. The osd memory limit below is
+      # held at 2x this target so a recovery burst cannot trip an OOM kill.
+      cephConfig:
+        osd:
+          osd_memory_target: "1073741824"   # 1 GiB
+
+      # Chart defaults are sized for a production cluster (osd 1 CPU + 4Gi, mon
+      # 1 CPU + 1Gi, mgr 500m each) and accounted for ~59% of this cluster's
+      # allocatable CPU in requests while actually using ~360m total. Requests
+      # are trimmed towards real usage; memory limits stay generous so no daemon
+      # becomes more likely to be OOM-killed.
+      resources:
+        mon:
+          limits:
+            memory: 2Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+        osd:
+          limits:
+            memory: 2Gi
+          requests:
+            cpu: 250m
+            memory: 1Gi
+        mgr:
+          limits:
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+        mgr-sidecar:
+          limits:
+            memory: 100Mi
+          requests:
+            cpu: 10m
+            memory: 40Mi
+        crashcollector:
+          limits:
+            memory: 60Mi
+          requests:
+            cpu: 10m
+            memory: 60Mi
+        exporter:
+          limits:
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 50Mi
+        prepareosd:
+          requests:
+            cpu: 100m
+            memory: 50Mi
+        cleanup:
+          limits:
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+
       placement:
         all:
           nodeAffinity:
