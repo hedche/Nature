@@ -60,12 +60,14 @@ spec:
       logCollector:
         enabled: false
 
-      # Cap the bluestore cache. Rook otherwise leaves osd_memory_target at 4Gi,
-      # far more than this ~2 GiB dataset needs. The osd memory limit below is
-      # held at 2x this target so a recovery burst cannot trip an OOM kill.
+      # BlueStore cache sizing. osd_memory_base is 768Mi and osd_memory_cache_min
+      # is 128Mi, so a 1Gi target left the autotuner pinned at its cache floor
+      # (measured: bluestore-pricache cache_bytes == osd_memory_cache_min exactly)
+      # with no adaptive range. 2Gi leaves ~1.2Gi for cache. The osd memory limit
+      # below is held at 2x this target so a recovery burst cannot trip an OOM.
       cephConfig:
         osd:
-          osd_memory_target: "1073741824"   # 1 GiB
+          osd_memory_target: "2147483648"   # 2 GiB
 
       # Chart defaults are sized for a production cluster (osd 1 CPU + 4Gi, mon
       # 1 CPU + 1Gi, mgr 500m each) and accounted for ~59% of this cluster's
@@ -81,16 +83,17 @@ spec:
             memory: 512Mi
         osd:
           limits:
-            memory: 2Gi
+            memory: 4Gi
           requests:
             cpu: 250m
-            memory: 1Gi
+            memory: 2Gi
+        # Measured steady-state mgr RSS is ~580Mi, above the old 512Mi request.
         mgr:
           limits:
             memory: 1Gi
           requests:
             cpu: 100m
-            memory: 512Mi
+            memory: 640Mi
         mgr-sidecar:
           limits:
             memory: 100Mi
