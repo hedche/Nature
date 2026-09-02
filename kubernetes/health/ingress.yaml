@@ -16,8 +16,13 @@ spec:
     - host: health.cereal.nature.leafbit.uk
       http:
         paths:
+          # Prefix, not Exact: the strrl controller skips the whole Ingress with
+          # "path type in ingress health/health is Exact, which is not supported",
+          # so no tunnel route and no DNS record is ever created. The nginx config
+          # in configmap.yaml still answers only /healthz and 404s everything else,
+          # so the wider match costs nothing.
           - path: /healthz
-            pathType: Exact
+            pathType: Prefix
             backend:
               service:
                 name: health
