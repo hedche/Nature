@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: node-problem-detector-kubelet-healthz
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: node-problem-detector
+    app.kubernetes.io/part-of: monitoring
+data:
+  kubelet-healthz-monitor.json: |
+    {
+      "plugin": "custom",
+      "pluginConfig": {
+        "invoke_interval": "60s",
+        "timeout": "15s",
+        "max_output_length": 120,
+        "concurrency": 1,
+        "enable_message_change_based_condition_update": false
+      },
+      "source": "kubelet-healthz-monitor",
+      "metricsReporting": true,
+      "conditions": [
+        {
+          "type": "KubeletHealthzUnresponsive",
+          "reason": "KubeletHealthzOK",
+          "message": "kubelet healthz is responding"
+        }
+      ],
+      "rules": [
+        {
+          "type": "permanent",
+          "condition": "KubeletHealthzUnresponsive",
+          "reason": "KubeletHealthzUnresponsive",
+          "path": "/custom-plugins/kubelet-healthz.sh",
+          "timeout": "10s"
+        }
+      ]
+    }
+
+  # During the 2026-07-18 crackle outage, ICMP, Talos apid and `talosctl services`
+  # all reported healthy while kubelet healthz hung. healthz binds 127.0.0.1 only,
+  # so it can only be checked from on the node — hence hostNetwork on the DaemonSet.
+  #
+  # Uses bash's /dev/tcp rather than curl: the node-problem-detector image ships
+  # neither curl nor wget, and adding a sidecar just to make an HTTP request would
+  # cost more than it is worth.
+  #
+  # Exit 0 = OK, exit 1 = problem (NPD's custom plugin contract).
+  kubelet-healthz.sh: |
+    #!/bin/bash
+    set -o pipefail
+
+    readonly HOST=127.0.0.1
+    readonly PORT=10248
+
+    response=$(
+      timeout 8 bash -c '
+        exec 3<>/dev/tcp/'"${HOST}"'/'"${PORT}"' || exit 1
+        printf "GET /healthz HTTP/1.0\r\nHost: localhost\r\n\r\n" >&3
+        cat <&3
+      ' 2>/dev/null
+    )
+    rc=$?
+
+    if [[ $rc -ne 0 ]]; then
+      echo "kubelet healthz did not answer on ${HOST}:${PORT} (rc=${rc})"
+      exit 1
+    fi
+
+    if ! grep -q '^ok' <<<"${response}"; then
+      echo "kubelet healthz answered but not with ok"
+      exit 1
+    fi
+
+    echo "kubelet healthz ok"
+    exit 0

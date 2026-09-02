@@ -1,0 +1,66 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: blackbox-exporter
+  namespace: monitoring
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: prometheus-blackbox-exporter
+      version: "11.x"
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: flux-system
+      interval: 10m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values: [snap, crackle, pop]
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 96Mi
+    # ICMP needs raw sockets. The monitoring namespace is already PSA privileged,
+    # which is what allows NET_RAW here — at `baseline` this would be rejected.
+    podSecurityContext:
+      runAsNonRoot: false
+      runAsUser: 0
+    securityContext:
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        add: [NET_RAW]
+        drop: [ALL]
+    config:
+      modules:
+        icmp:
+          prober: icmp
+          timeout: 5s
+          icmp:
+            preferred_ip_protocol: ip4
+        http_2xx:
+          prober: http
+          timeout: 5s
+          http:
+            valid_status_codes: []
+            preferred_ip_protocol: ip4
+        tcp_connect:
+          prober: tcp
+          timeout: 5s
+          tcp:
+            preferred_ip_protocol: ip4

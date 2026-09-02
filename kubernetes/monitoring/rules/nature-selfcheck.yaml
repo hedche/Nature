@@ -1,0 +1,142 @@
+# Does the alerting still work?
+#
+# Every other rule in this directory shares one failure mode: an alert whose
+# underlying metric stops being produced can never fire again, and nothing says
+# so. `up == 0` does NOT catch it — the exporter is healthy and being scraped,
+# it has simply stopped emitting that series (a dropped collector flag, a
+# renamed metric after a chart upgrade, a relabel typo). The alert just goes
+# quiet, and quiet is indistinguishable from healthy.
+#
+# Verified against the live cluster on 2026-08-31: node_power_supply_online
+# exists on exactly ONE node (cereal — ACAD and BAT1 are absent on snap,
+# crackle and pop), produced by the optional --collector.powersupplyclass flag.
+# One flag, one node, one series, standing between you and a five-hour warning.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nature-selfcheck
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: monitoring
+spec:
+  groups:
+    - name: nature.selfcheck.metrics
+      rules:
+        - alert: BatteryMetricMissing
+          expr: absent(node_power_supply_online{power_supply="ACAD"})
+          for: 15m
+          labels:
+            severity: critical
+            channel: pipeline
+          annotations:
+            summary: "The cereal battery metric is gone — CerealOnBattery can no longer fire"
+            description: >-
+              node_power_supply_online{power_supply="ACAD"} is produced on cereal
+              alone by node-exporter's optional --collector.powersupplyclass flag.
+              If a chart upgrade drops that flag, the single most valuable alert in
+              this cluster goes permanently silent with no other symptom. Confirm
+              the hardware side with:
+              talosctl -n 10.30.1.50 read /sys/class/power_supply/ACAD/online
+
+        - alert: KubeStateMetricsSeriesMissing
+          expr: absent(kube_node_status_condition)
+          for: 15m
+          labels:
+            severity: critical
+            channel: pipeline
+          annotations:
+            summary: "kube-state-metrics series are gone — NodeNotReady and friends are blind"
+            description: >-
+              NodeNotReady, CoreDNSReplicasLow, PodCrashLooping,
+              PersistentVolumeClaimPending and the NVMe Node Conditions all read
+              from kube-state-metrics. Without these series they cannot fire.
+
+        - alert: NodeExporterSeriesMissing
+          expr: absent(node_load1)
+          for: 15m
+          labels:
+            severity: critical
+            channel: pipeline
+          annotations:
+            summary: "node-exporter series are gone — every node-level alert is blind"
+
+        - alert: CephSeriesMissing
+          expr: absent(ceph_health_status)
+          for: 30m
+          labels:
+            severity: warning
+            channel: pipeline
+          annotations:
+            summary: "Ceph metrics are gone — all eight storage alerts are blind"
+            description: >-
+              Check the ServiceMonitors in ../servicemonitor-ceph.yaml still match
+              rook's Services. Verified 2026-08-31: rook-ceph-mgr carries
+              app=rook-ceph-mgr port http-metrics:9283, and rook-ceph-exporter
+              carries app=rook-ceph-exporter port ceph-exporter-http-metrics:9926.
+
+        - alert: KernelMonitorSeriesMissing
+          expr: absent(problem_gauge)
+          for: 15m
+          labels:
+            severity: critical
+            channel: pipeline
+          annotations:
+            summary: "node-problem-detector series are gone — NVMe DMA-fault detection is blind"
+            description: >-
+              This is the detection that exists specifically because nothing else
+              caught crackle's nine-day outage. See docs/nvme-dma-fault-monitoring.md.
+
+    # ------------------------------------------------------------------------
+    # Can it still reach you?
+    #
+    # These are routed via `channel: pipeline` to a receiver that fans out to
+    # Telegram AND the Home Assistant webhook, because an alert about the
+    # notification path being broken must not travel down the path it is
+    # reporting on. Upstream's AlertmanagerFailedToSendAlerts has exactly that
+    # circularity when every route ends at a single receiver.
+    - name: nature.selfcheck.delivery
+      rules:
+        - alert: AlertDeliveryFailing
+          expr: rate(alertmanager_notifications_failed_total[10m]) > 0
+          for: 10m
+          labels:
+            severity: critical
+            channel: pipeline
+          annotations:
+            summary: "Alertmanager cannot deliver notifications — alerts are being lost"
+            description: >-
+              Integration {{ $labels.integration }} is failing. A revoked Telegram
+              bot token, a wrong chat ID, or api.telegram.org being unreachable all
+              land here. The heartbeat to Home Assistant uses a different receiver
+              and keeps flowing, so nothing else notices.
+
+        - alert: PrometheusNotConnectedToAlertmanager
+          expr: prometheus_notifications_alertmanagers_discovered < 1
+          for: 10m
+          labels:
+            severity: critical
+            channel: pipeline
+          annotations:
+            summary: "Prometheus has no Alertmanager — rules evaluate but nothing is sent"
+
+        - alert: PrometheusRuleEvaluationFailing
+          expr: increase(prometheus_rule_evaluation_failures_total[10m]) > 0
+          for: 10m
+          labels:
+            severity: warning
+            channel: pipeline
+          annotations:
+            summary: "A recording or alerting rule is failing to evaluate"
+            description: >-
+              A rule that cannot evaluate cannot fire. If this is a recording rule
+              feeding remote_write, the Grafana Cloud dead-man's switch may be
+              affected too.
+
+        - alert: PrometheusConfigReloadFailing
+          expr: prometheus_config_last_reload_successful == 0
+          for: 10m
+          labels:
+            severity: critical
+            channel: pipeline
+          annotations:
+            summary: "Prometheus is running stale config — recent rule changes are not live"

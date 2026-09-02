@@ -276,3 +276,36 @@ on hassio in the same change — Core loads both files, and leaving the original
 in place registers the automation twice, so one button press fires it twice.
 Package automations also stop being editable from the UI; edit them here and
 redeploy instead.
+
+## Cluster watchdog — `packages/nature-watchdog.yaml`
+
+The third vantage point for cereal cluster monitoring. cereal's own Prometheus cannot
+report that cereal is dead; Home Assistant runs on separate hardware, on the same LAN,
+with phone push already working, so it is the one observer that survives the whole
+cluster going away.
+
+| Signal | Detects |
+|---|---|
+| ping `.50`–`.53` | individual nodes going away |
+| all four `off` at once | the LAN/switch leg outage that recurred on 2026-07-15, -24 and -25 |
+| TCP `10.30.1.50:6443` | the API server hung while the node still pings — the shape of the 2026-07-18 crackle outage |
+| `nature-cluster-heartbeat` webhook | Alertmanager's always-firing `Watchdog` alert, POSTed every minute. **Its absence for 15 minutes is the dead-man's switch.** |
+| `nature-critical-alert` webhook | Every `severity: critical` alert, relayed as a second delivery path so a broken Telegram token cannot swallow it silently |
+
+Both webhooks are fed by receivers in `kubernetes/monitoring/helmrelease.yaml`. Never
+silence the `Watchdog` alert in Alertmanager — doing so disables the dead-man's switch.
+
+Deployed by `./deploy.sh` along with the other packages. Two things to do once:
+
+1. Replace every `notify.mobile_app_REPLACE_ME` with your companion-app entity
+   (Developer Tools → Actions → search "notify").
+2. Prove the dead-man's switch actually fires rather than assuming it does:
+   ```sh
+   export KUBECONFIG=talos/kubeconfig
+   kubectl -n monitoring scale sts/alertmanager-kube-prometheus-stack-alertmanager --replicas=0
+   # wait ~16 minutes -> expect a critical phone push
+   kubectl -n monitoring scale sts/alertmanager-kube-prometheus-stack-alertmanager --replicas=1
+   ```
+
+The `ping` binary_sensor YAML platform was removed from Home Assistant (it is config-flow
+only now), which is why these are `command_line` sensors.

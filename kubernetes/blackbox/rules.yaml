@@ -1,0 +1,73 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nature-network
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: monitoring
+spec:
+  groups:
+    - name: nature.network
+      rules:
+        # Same class of guard as ../monitoring/rules/nature-selfcheck.yaml: if
+        # the Probe objects stop producing series entirely, every rule below
+        # goes quiet and looks exactly like a healthy network.
+        - alert: BlackboxProbeSeriesMissing
+          expr: absent(probe_success)
+          for: 15m
+          labels:
+            severity: warning
+            channel: pipeline
+          annotations:
+            summary: "No probe_success series — every network alert below is blind"
+
+        - alert: LanHostUnreachable
+          expr: probe_success{job="blackbox-icmp"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.instance }} has not answered ICMP for 5m"
+
+        - alert: GatewayUnreachable
+          expr: probe_success{job="blackbox-icmp", instance="10.30.1.1"} == 0
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "The UniFi gateway is unreachable from the cluster"
+            description: "Nothing on the LAN or beyond it is routable. Check the switch leg."
+
+        # arctic sits in the garage behind a red-LED Netgear PL1000 powerline
+        # adapter (<50 Mbps link rate) which degrades under load and stays
+        # degraded. RTT here is the early warning; power-cycle both adapters to
+        # force a retrain.
+        - alert: PowerlineLinkDegraded
+          expr: avg_over_time(probe_duration_seconds{job="blackbox-icmp", instance="10.30.1.21"}[10m]) > 0.1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "RTT to arctic above 100ms for 15m — the garage powerline link is degrading"
+
+        - alert: WanDown
+          expr: max(probe_success{job="blackbox-wan"}) == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No route to the internet from the cluster"
+            description: >-
+              remote_write to Grafana Cloud is also down, so the off-site
+              dead-man's switch will fire shortly. This alert reaches Telegram
+              only if the outage is upstream of the tunnel.
+
+        - alert: HomeAssistantUnreachable
+          expr: probe_success{job="blackbox-icmp", instance="10.30.1.60"} == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "hassio is unreachable — the LAN-side watchdog is down"
+            description: >-
+              The third vantage point is blind. See home-assistant/README.md.

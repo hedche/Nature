@@ -1,0 +1,50 @@
+# Pre-aggregation for remote_write.
+#
+# Grafana Cloud's free tier caps active series at 10k and silently DROPS the
+# excess — a partially-dropped dead-man's switch looks exactly like a working
+# one, which is the worst failure available. Raw local cardinality is ~50-70k, so
+# the per-pod and per-container dimensions are collapsed HERE and only the
+# aggregate crosses the wire. cAdvisor alone goes from ~7,000 series to ~10.
+#
+# Every series produced here is matched by the `nature:.*` term in the
+# remote_write allow-list in ../helmrelease.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nature-remote-write-aggregates
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: monitoring
+spec:
+  groups:
+    - name: nature.remotewrite.aggregates
+      interval: 60s
+      rules:
+        # ~10 namespaces instead of 122 containers.
+        - record: nature:container_cpu_usage:sum_by_namespace
+          expr: sum by (namespace) (rate(container_cpu_usage_seconds_total{container!="",image!=""}[5m]))
+        - record: nature:container_memory_working_set:sum_by_namespace
+          expr: sum by (namespace) (container_memory_working_set_bytes{container!="",image!=""})
+
+        # 4 series each, and used by the local NodeMemoryPressure /
+        # NodeRootFilesystemFilling alerts as well.
+        - record: nature:node_cpu_utilisation:ratio
+          expr: 1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))
+        - record: nature:node_memory_utilisation:ratio
+          expr: 1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)
+        - record: nature:node_rootfs_utilisation:ratio
+          expr: >-
+            1 - (node_filesystem_avail_bytes{mountpoint="/"}
+                 / node_filesystem_size_bytes{mountpoint="/"})
+
+        # apiserver_request_duration_seconds_bucket alone is ~15k series locally.
+        # Ship one number instead.
+        - record: nature:apiserver_request_errors:rate5m
+          expr: sum(rate(apiserver_request_total{code=~"5.."}[5m]))
+
+        # THE heartbeat. The Grafana Cloud dead-man's switch is
+        # `absent(nature:cluster_heartbeat)` — if this stops arriving, the cluster
+        # is gone and the cloud pages you. Do not remove or rename without
+        # updating the cloud rule.
+        - record: nature:cluster_heartbeat
+          expr: vector(1)

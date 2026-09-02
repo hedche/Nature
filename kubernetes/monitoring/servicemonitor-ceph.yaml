@@ -1,0 +1,48 @@
+# Rook exposes ceph metrics on services it already creates, but only wires up
+# ServiceMonitors when cephClusterSpec.monitoring.enabled is set. Enabling that
+# flag would make rook-ceph depend on the ServiceMonitor CRD, which this
+# Kustomization installs — and monitoring already dependsOn rook-ceph for its
+# PVCs, so that would be a dependency cycle. Declaring the ServiceMonitors here
+# instead keeps the arrow pointing one way.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rook-ceph-mgr
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: rook-ceph-mgr
+    app.kubernetes.io/part-of: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [rook-ceph]
+  selector:
+    matchLabels:
+      app: rook-ceph-mgr
+      rook_cluster: rook-ceph
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 30s
+      # The mgr Service fronts the active mgr only; the standby is not scraped.
+      honorLabels: true
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rook-ceph-exporter
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: rook-ceph-exporter
+    app.kubernetes.io/part-of: monitoring
+spec:
+  namespaceSelector:
+    matchNames: [rook-ceph]
+  selector:
+    matchLabels:
+      app: rook-ceph-exporter
+      rook_cluster: rook-ceph
+  endpoints:
+    - port: ceph-exporter-http-metrics
+      path: /metrics
+      interval: 30s
+      honorLabels: true

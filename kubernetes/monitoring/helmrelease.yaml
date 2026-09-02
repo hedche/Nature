@@ -1,0 +1,347 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-prometheus-stack
+  namespace: monitoring
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: kube-prometheus-stack
+      version: "87.x"
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: flux-system
+      interval: 10m
+  install:
+    crds: Create
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  values:
+    # Grafana Cloud is the UI. Running a second Grafana here would mean another
+    # PVC, another tailnet device and two places to keep dashboards in sync.
+    grafana:
+      enabled: false
+
+    # ---------------------------------------------------------------- Prometheus
+    prometheus:
+      prometheusSpec:
+        replicas: 1 # ceph-block is RWO; a second replica needs a second PVC and buys nothing here
+        retention: 30d
+        retentionSize: 24GiB # hard stop well inside the 30Gi PVC
+        scrapeInterval: 30s
+        evaluationInterval: 30s
+        walCompression: true
+        enableAdminAPI: false
+
+        # Tags every remote-written sample. Grafana Cloud is a shared tenant across
+        # both clusters, so without this you cannot tell cereal from oracle — and
+        # the cloud-side dead-man's switch queries by cluster.
+        externalLabels:
+          cluster: cereal
+
+        # Without these four the operator only adopts objects carrying the Helm
+        # release label, and everything in rules/ is silently ignored.
+        ruleSelectorNilUsesHelmValues: false
+        serviceMonitorSelectorNilUsesHelmValues: false
+        podMonitorSelectorNilUsesHelmValues: false
+        probeSelectorNilUsesHelmValues: false
+
+        affinity:
+          nodeAffinity:
+            # cereal is an 8 GB laptop AND the sole control plane AND the node
+            # whose death we are trying to detect. Never schedule the TSDB there.
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: kubernetes.io/hostname
+                      operator: In
+                      values: [snap, crackle, pop]
+            # Soft, not hard: crackle has an NVMe DMA-fault history
+            # (docs/nvme-dma-fault-monitoring.md), so prefer the other two — but a
+            # hard anti-affinity would leave Prometheus unschedulable if they are down.
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - key: kubernetes.io/hostname
+                      operator: In
+                      values: [pop, snap]
+
+        resources:
+          requests:
+            # Was 150m: snap and pop used to sit at 91-95% of allocatable CPU
+            # *requested*, so nothing larger would schedule. Those requests were
+            # lowered cluster-wide and the workers now sit at 18-22% (measured
+            # 2026-09-02), so this goes back to the originally intended 300m —
+            # about 5% of one worker. Deliberately not larger: headroom exists to
+            # absorb spikes, not to be pre-allocated by the monitoring stack.
+            cpu: 300m
+            memory: 1500Mi
+          limits:
+            # No CPU limit on purpose: throttling a TSDB compaction is worse for
+            # the cluster than letting it burst one core for a couple of minutes.
+            memory: 3Gi
+
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: ceph-block
+              accessModes: [ReadWriteOnce]
+              resources:
+                requests:
+                  storage: 30Gi
+
+        # ------------------------------------------------- Grafana Cloud remote_write
+        # Ships a filtered subset off-site so alerts can be evaluated somewhere
+        # that survives this cluster dying. The free tier is HARD-limited at 10k
+        # active series and silently DROPS the excess, which would make the
+        # dead-man's switch look healthy while being blind — hence the allow-list.
+        #
+        # Bringing the stack up before you have a Grafana Cloud account? Comment
+        # this whole block out; everything else works standalone.
+        # DISABLED FOR PHASE 1 — no Grafana Cloud stack exists yet, so
+        # ${GRAFANA_CLOUD_PROM_URL} has no value in the nature-vars Secret. Flux
+        # substitutes a missing key as an EMPTY STRING (it does not fail), and an
+        # empty remoteWrite.url stops Prometheus loading its config entirely. So
+        # the whole block is commented out rather than left to resolve to "".
+        # Re-enable by uncommenting after step 8 of the rollout, once the three
+        # GRAFANA_CLOUD_* keys are in nature-vars.
+#         remoteWrite:
+#           - url: "${GRAFANA_CLOUD_PROM_URL}"
+#             name: grafana-cloud
+#             remoteTimeout: 30s
+#             basicAuth:
+#               username:
+#                 name: grafana-cloud-credentials
+#                 key: prometheus-username
+#               password:
+#                 name: grafana-cloud-credentials
+#                 key: prometheus-token
+#             queueConfig:
+#               capacity: 5000
+#               maxShards: 4
+#               maxSamplesPerSend: 1000
+#             writeRelabelConfigs:
+#               # 1. Allow-list by metric name. Anything not listed is dropped before
+#               #    it leaves the cluster, so it never counts against the cap.
+#               #    Raw local cardinality is ~50-70k; this ships ~2k.
+#               - sourceLabels: [__name__]
+#                 action: keep
+#                 regex: >-
+#                   up|ALERTS|nature:.*|
+#                   node_power_supply_online|node_power_supply_capacity|node_boot_time_seconds|
+#                   node_load1|node_load5|node_load15|node_timex_offset_seconds|
+#                   node_memory_MemTotal_bytes|node_memory_MemAvailable_bytes|
+#                   node_filesystem_avail_bytes|node_filesystem_size_bytes|node_filesystem_readonly|
+#                   node_network_receive_bytes_total|node_network_transmit_bytes_total|
+#                   node_network_receive_errs_total|node_network_transmit_errs_total|
+#                   node_network_receive_drop_total|node_network_transmit_drop_total|
+#                   node_disk_read_bytes_total|node_disk_written_bytes_total|node_disk_io_time_seconds_total|
+#                   node_hwmon_temp_celsius|node_uname_info|node_time_seconds|
+#                   kube_node_info|kube_node_status_condition|kube_node_spec_unschedulable|
+#                   kube_pod_status_phase|kube_pod_container_status_restarts_total|
+#                   kube_deployment_spec_replicas|kube_deployment_status_replicas_available|
+#                   kube_daemonset_status_desired_number_scheduled|kube_daemonset_status_number_ready|
+#                   kube_statefulset_replicas|kube_statefulset_status_replicas_ready|
+#                   kube_job_status_failed|kube_persistentvolumeclaim_status_phase|
+#                   kubelet_running_pods|kubelet_running_containers|
+#                   kubelet_volume_stats_available_bytes|kubelet_volume_stats_capacity_bytes|
+#                   ceph_health_status|ceph_mon_quorum_status|ceph_osd_up|ceph_osd_in|
+#                   ceph_cluster_total_bytes|ceph_cluster_total_used_bytes|
+#                   ceph_pool_stored|ceph_pool_max_avail|
+#                   ceph_pg_degraded|ceph_pg_undersized|ceph_pg_inconsistent|
+#                   gotk_reconcile_condition|gotk_suspend_status|
+#                   etcd_server_has_leader|apiserver_current_inflight_requests|
+#                   problem_counter|problem_gauge|
+#                   probe_success|probe_duration_seconds|probe_icmp_duration_seconds|
+#                   prometheus_tsdb_head_series|
+#                   prometheus_remote_storage_samples_failed_total|
+#                   prometheus_remote_storage_samples_dropped_total
+#               # 2. gotk_reconcile_condition fans out across condition types; only
+#               #    Ready is actionable.
+#               - sourceLabels: [__name__, type]
+#                 action: drop
+#                 regex: gotk_reconcile_condition;(?:Stalled|Reconciling|Suspended)
+#               # 3. kube_pod_status_phase emits a series per phase per pod, mostly zeros.
+#               - sourceLabels: [__name__, phase]
+#                 action: drop
+#                 regex: kube_pod_status_phase;(?:Succeeded|Unknown)
+#               # 4. These labels mint a brand new series on every pod restart, which
+#               #    is how a homelab quietly eats a 10k cap.
+#               - regex: (uid|pod_ip|container_id|image_id|id)
+#                 action: labeldrop
+
+    # -------------------------------------------------------------- Alertmanager
+    alertmanager:
+      alertmanagerSpec:
+        replicas: 1
+        secrets:
+          # Mounted at /etc/alertmanager/secrets/alertmanager-telegram/
+          - alertmanager-telegram
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: kubernetes.io/hostname
+                      operator: In
+                      values: [snap, crackle, pop]
+        resources:
+          requests: {cpu: 10m, memory: 64Mi}
+          limits: {memory: 256Mi}
+        storage:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: ceph-block
+              accessModes: [ReadWriteOnce]
+              resources:
+                requests:
+                  storage: 2Gi
+      config:
+        global:
+          resolve_timeout: 5m
+        route:
+          receiver: telegram
+          group_by: [alertname, node, namespace]
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 6h
+          routes:
+            # The always-firing Watchdog. Home Assistant treats the *absence* of
+            # these POSTs as the LAN-side dead-man's switch, so it must not be
+            # grouped or throttled like a real alert.
+            - receiver: home-assistant-heartbeat
+              matchers: [channel = "heartbeat"]
+              group_wait: 0s
+              group_interval: 1m
+              repeat_interval: 1m
+              continue: false
+            # An alert about the notification path being broken must not
+            # travel down the path it is reporting on. Both of these end at a
+            # receiver that fans out to Telegram AND the Home Assistant webhook,
+            # so a revoked bot token still reaches a phone by the other route.
+            - receiver: critical-dual-path
+              matchers: [channel = "pipeline"]
+              group_wait: 0s
+              repeat_interval: 1h
+            - receiver: critical-dual-path
+              matchers: [severity = "critical"]
+              repeat_interval: 2h
+        receivers:
+          - name: telegram
+            telegram_configs:
+              - bot_token_file: /etc/alertmanager/secrets/alertmanager-telegram/bot-token
+                chat_id: ${TELEGRAM_CHAT_ID}
+                parse_mode: HTML
+                send_resolved: true
+                message: |
+                  <b>[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}</b>
+                  {{ range .Alerts }}{{ .Annotations.summary }}
+                  {{ if .Annotations.description }}{{ .Annotations.description }}
+                  {{ end }}{{ end }}
+          # Two independent transports in one receiver. Alertmanager delivers
+          # to both, so neither Telegram nor the LAN webhook is a single point
+          # of failure for the alerts that matter most.
+          - name: critical-dual-path
+            telegram_configs:
+              - bot_token_file: /etc/alertmanager/secrets/alertmanager-telegram/bot-token
+                chat_id: ${TELEGRAM_CHAT_ID}
+                parse_mode: HTML
+                send_resolved: true
+                message: |
+                  <b>[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}</b>
+                  {{ range .Alerts }}{{ .Annotations.summary }}
+                  {{ if .Annotations.description }}{{ .Annotations.description }}
+                  {{ end }}{{ end }}
+            webhook_configs:
+              - url: http://10.30.1.60:8123/api/webhook/nature-critical-alert
+                send_resolved: true
+          - name: home-assistant-heartbeat
+            webhook_configs:
+              - url: http://10.30.1.60:8123/api/webhook/nature-cluster-heartbeat
+                send_resolved: false
+        inhibit_rules:
+          # A dead node produces a warning per pod on it. Page once, not thirty times.
+          - source_matchers: [alertname = "NodeNotReady"]
+            target_matchers: [severity = "warning"]
+            equal: [node]
+          # Battery death is the cause; everything downstream is noise.
+          - source_matchers: [alertname = "CerealOnBattery"]
+            target_matchers: [severity = "warning"]
+
+    # --------------------------------------------------------------- Exporters
+    kube-state-metrics:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: [snap, crackle, pop]
+      resources:
+        requests: {cpu: 20m, memory: 64Mi}
+        limits: {memory: 256Mi}
+
+    prometheus-node-exporter:
+      # MUST run on cereal: node_power_supply_online{power_supply="ACAD"} is the
+      # charger-unplugged alert, and cereal is the only node with a battery.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {memory: 128Mi}
+      extraArgs:
+        - --collector.powersupplyclass
+        # Cilium creates one lxc* veth per pod — 122 of them. Excluding them is
+        # the single biggest raw-cardinality win available in node-exporter.
+        - --collector.netdev.device-exclude=^(lxc|cilium|veth|docker|lo).*
+        - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/kubelet/.+)($|/)
+
+    prometheusOperator:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values: [snap, crackle, pop]
+      resources:
+        requests: {cpu: 20m, memory: 64Mi}
+        limits: {memory: 256Mi}
+
+    # ------------------------------------------------------------ Upstream rules
+    defaultRules:
+      create: true
+      rules:
+        etcd: false # single-member etcd; upstream rules assume a quorum
+        kubeProxy: false # kube-proxy is disabled, Cilium handles routing via eBPF
+        windows: false
+      disabled:
+        # Three workers deliberately run at high CPU *requests* because rook-ceph
+        # reserves a core per mon and per OSD. That is intentional, not an incident.
+        KubeCPUOvercommit: true
+        KubeMemoryOvercommit: true
+        CPUThrottlingHigh: true
+
+    # kube-proxy is disabled cluster-wide (Cilium eBPF); scraping it fails forever.
+    kubeProxy:
+      enabled: false
+    # Both bind 127.0.0.1 on Talos until the bind-address change in
+    # talos/controlplane.yaml is applied. Flip these to true after that.
+    kubeControllerManager:
+      enabled: false
+    kubeScheduler:
+      enabled: false
+    # etcd metrics need a machine-config change of their own; deferred.
+    kubeEtcd:
+      enabled: false

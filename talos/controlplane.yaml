@@ -514,12 +514,21 @@ cluster:
     # Controller manager server specific configuration options.
     controllerManager:
         image: registry.k8s.io/kube-controller-manager:v1.32.3 # The container image used in the controller manager manifest.
+        # Talos binds kube-controller-manager to 127.0.0.1:10257 by default, which
+        # makes its /metrics unreachable from the Prometheus pod on another node.
+        # The endpoint still requires a bearer token (RBAC) — this does not make it
+        # anonymous, only reachable. See kubernetes/monitoring/.
+        extraArgs:
+            bind-address: 0.0.0.0
     # Kube-proxy server-specific configuration options
     proxy:
         disabled: true # Cilium handles service routing via eBPF
     # Scheduler server specific configuration options.
     scheduler:
         image: registry.k8s.io/kube-scheduler:v1.32.3 # The container image used in the scheduler manifest.
+        # Same as controllerManager above — default bind is 127.0.0.1:10259.
+        extraArgs:
+            bind-address: 0.0.0.0
     # Configures cluster member discovery.
     discovery:
         enabled: true # Enable the cluster membership discovery feature.

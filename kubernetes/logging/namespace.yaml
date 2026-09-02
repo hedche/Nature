@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+  labels:
+    app.kubernetes.io/name: logging
+    app.kubernetes.io/part-of: monitoring
+    # Stays at the cluster default `baseline` on purpose. Alloy reads pod logs
+    # through the Kubernetes API (loki.source.kubernetes) rather than hostPath
+    # /var/log/pods, which baseline would block. It costs a little apiserver load
+    # and buys not having a second privileged namespace.

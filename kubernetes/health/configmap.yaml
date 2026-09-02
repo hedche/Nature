@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: health-nginx
+  namespace: health
+  labels:
+    app.kubernetes.io/name: health
+    app.kubernetes.io/part-of: monitoring
+data:
+  # Returns literally "ok" on /healthz and 404 on everything else. No request
+  # echo, no server tokens, no directory listing — this is reachable from the
+  # public internet, so it must leak nothing about the cluster behind it.
+  default.conf: |
+    server {
+        listen 8080;
+        server_name _;
+
+        server_tokens off;
+        access_log off;
+
+        location = /healthz {
+            add_header Content-Type text/plain always;
+            return 200 'ok';
+        }
+
+        location / {
+            return 404;
+        }
+    }

@@ -10,3 +10,8 @@ resources:
   - rook-ceph.yaml
   - peanut.yaml
   - media.yaml
+  - notifications.yaml
+  - monitoring.yaml
+  - blackbox.yaml
+  # - logging.yaml   # needs GRAFANA_CLOUD_LOKI_* in nature-vars; enable at rollout step 11
+  - health.yaml

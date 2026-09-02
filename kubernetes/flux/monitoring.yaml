@@ -1,0 +1,21 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: monitoring
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/monitoring
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+    - name: rook-ceph # ceph-block PVCs for the Prometheus TSDB and Alertmanager
+    - name: tailscale-operator # tailscale Ingress class for the debug UIs
+  # Injects ${GRAFANA_CLOUD_PROM_URL} and ${TELEGRAM_CHAT_ID}. Neither is a
+  # credential, but Nature is a public repo and neither belongs in the tree.
+  postBuild:
+    substituteFrom:
+      - kind: Secret
+        name: nature-vars

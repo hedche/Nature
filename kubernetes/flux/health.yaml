@@ -1,0 +1,14 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: health
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/health
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+    - name: cloudflared # cloudflare-tunnel Ingress class

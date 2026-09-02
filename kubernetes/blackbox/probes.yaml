@@ -1,0 +1,52 @@
+# LAN and WAN reachability, probed from inside the cluster.
+#
+# The cluster moved indoors on 2026-07-25 and is no longer behind the garage
+# powerline link — but arctic (.21) still is, so it stays here as the canary for
+# that link. hermes (.57) is the NFS server the media stack depends on.
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: lan-icmp
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: monitoring
+spec:
+  interval: 60s
+  module: icmp
+  prober:
+    url: blackbox-exporter-prometheus-blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static:
+        - 10.30.1.1 # UniFi gateway
+        - 10.30.1.57 # hermes — NFS server for the media stack
+        - 10.30.1.60 # hassio — the LAN watchdog itself
+        - 10.30.1.20 # qnap
+        # VERIFIED DOWN 2026-08-31: no ARP response on en0 while qnap on the
+        # same segment answers in ~4ms. Either arctic is powered off or the
+        # garage powerline link is dead. Resolve this BEFORE deploying blackbox,
+        # or LanHostUnreachable and PowerlineLinkDegraded fire on day one and
+        # teach you to ignore the new alerts.
+        # - 10.30.1.21 # arctic — RE-ENABLE once it is back up (see note above)
+      labels:
+        job: blackbox-icmp
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: wan-icmp
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: monitoring
+spec:
+  interval: 60s
+  module: icmp
+  prober:
+    url: blackbox-exporter-prometheus-blackbox-exporter.monitoring.svc:9115
+  targets:
+    staticConfig:
+      static:
+        - 1.1.1.1
+        - 8.8.8.8
+      labels:
+        job: blackbox-wan
