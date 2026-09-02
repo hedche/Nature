@@ -6,10 +6,22 @@ metadata:
 spec:
   type: telegram
   address: https://api.telegram.org
-  # ${TELEGRAM_CHAT_ID} is substituted at apply time from the notification-vars
-  # Secret (see kubernetes/flux/notifications.yaml postBuild.substituteFrom).
-  # Provider has no secretRef key for the channel, and Nature is a public repo,
-  # so the chat ID is kept out of the tree rather than inlined here.
-  channel: "${TELEGRAM_CHAT_ID}"
+  # The chat ID is substituted at apply time from the nature-vars Secret (see
+  # kubernetes/flux/notifications.yaml). Provider has no secretRef key for the
+  # channel — secretRef is auth-only — and Nature is a public repo, so it is
+  # kept out of the tree rather than inlined.
+  #
+  # Why _STR and not TELEGRAM_CHAT_ID: `kustomize build` strips the quotes from
+  # "${VAR}" because the placeholder is a safe plain scalar, so Flux's envsubst
+  # then yields `channel: -5194927891`, which YAML parses as an INTEGER and the
+  # CRD rejects with ".spec.channel: expected string, got ...". Neither !!str nor
+  # a folded scalar survives kustomize's normalisation — both were tested. So the
+  # quotes have to come from the value itself: TELEGRAM_CHAT_ID_STR holds the
+  # same chat ID wrapped in literal double quotes.
+  #
+  # Alertmanager needs the opposite: telegram_configs.chat_id is an int, so
+  # kubernetes/monitoring/helmrelease.yaml uses the bare TELEGRAM_CHAT_ID.
+  # Same value, two YAML types, two keys.
+  channel: ${TELEGRAM_CHAT_ID_STR}
   secretRef:
     name: flux-telegram-token # key: token

@@ -5,4 +5,4 @@ resources:
   - configmap-kernel-monitor.yaml
   - configmap-kubelet-healthz.yaml
   - daemonset.yaml
-  - podmonitor.yaml
+# podmonitor.yaml moved to ../../monitoring-rules/ — it needs the PodMonitor CRD.

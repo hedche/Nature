@@ -12,6 +12,7 @@ resources:
   - media.yaml
   - notifications.yaml
   - monitoring.yaml
+  - monitoring-rules.yaml
   - blackbox.yaml
   # - logging.yaml   # needs GRAFANA_CLOUD_LOKI_* in nature-vars; enable at rollout step 11
   - health.yaml
