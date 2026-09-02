@@ -1,0 +1,38 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: metrics-server
+  namespace: kube-system
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: metrics-server
+      version: "3.14.x"
+      sourceRef:
+        kind: HelmRepository
+        name: metrics-server
+        namespace: flux-system
+      interval: 10m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    replicas: 1
+    args:
+      # Talos signs kubelet serving certificates itself, and cereal does not run
+      # kubelet `rotate-server-certificates` + a CSR approver, so those certs are
+      # not signed by the cluster CA and metrics-server cannot verify them.
+      # Scraping stays TLS-encrypted; only server verification is skipped.
+      # To drop this flag, follow the Talos cert-rotation guide:
+      # https://docs.siderolabs.com/kubernetes-guides/monitoring-and-observability/deploy-metrics-server
+      - --kubelet-insecure-tls
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi

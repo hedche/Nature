@@ -1,0 +1,84 @@
+# One lights-page tile. Pulled into packages/panel-ui.yaml four times with
+# `!include` vars so the tile is written once:
+#
+#   n      1-based tile index (ids tile_${n}, tile_${n}_icon, tile_${n}_state,
+#          and the n passed to ui_light / tap_light)
+#   col    grid column, 0 or 1
+#   row    grid row, 0 or 1
+#   icon   MDI glyph for the top-left corner — must be in the mdi_42 glyph list
+#   name   the label text
+#
+# The state machine lives in the ui_light script next to the page; this file
+# is just the look of one tile in its default (off), checked (on), disabled
+# (unavailable) and pressed states.
+button:
+  id: tile_${n}
+  grid_cell_column_pos: ${col}
+  grid_cell_row_pos: ${row}
+  width: 212
+  height: 156
+  radius: 28
+  pad_all: 0
+  border_width: 0
+  shadow_width: 0
+  bg_opa: COVER
+  # Until HA has spoken, the tile is honestly unavailable.
+  state:
+    disabled: true
+  # off
+  bg_color: 0x1B1F25
+  text_color: 0xC9CDD3
+  # on — set by ui_light from HA's state, never by the tap
+  checked:
+    bg_color: 0xEFB44C
+    text_color: 0x1E1608
+  # unavailable: recedes below the off tiles; recolor_opa: 0
+  # cancels the theme's grey wash so these colours render as-is
+  disabled:
+    bg_color: 0x0B0D10
+    border_width: 1
+    border_color: 0x2A2F36
+    text_color: 0x565C64
+    recolor_opa: 0
+  # pressed: a ring in the gutter (an outline does not shift the
+  # content the way a border would), on top of the theme's own
+  # slight darkening. No fill change, so a press never looks
+  # like a toggle.
+  pressed:
+    outline_width: 3
+    outline_pad: 2
+    outline_color: 0xFFFFFF
+    outline_opa: 45%
+  widgets:
+    - label:
+        id: tile_${n}_icon
+        text: "${icon}"
+        text_font: mdi_42
+        align: TOP_LEFT
+        x: 18
+        y: 16
+    - label:
+        id: tile_${n}_state
+        text: "..."
+        text_font: font_tiny
+        align: TOP_RIGHT
+        x: -18
+        y: 26
+        text_color: 0x83878D
+        checked:
+          text_color: 0x725523
+        disabled:
+          text_color: 0xC9776B
+    - label:
+        text: "${name}"
+        text_font: font_tile
+        align: BOTTOM_LEFT
+        x: 18
+        y: -16
+        width: 176
+        long_mode: WRAP
+        text_align: LEFT
+  on_click:
+    - script.execute:
+        id: tap_light
+        n: ${n}

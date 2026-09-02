@@ -13,5 +13,13 @@ data:
   TOP_PRIORITIES: "5"
   PRIORITIES_PER_ASSIGNEE: "5"
   PRIORITIES_UNASSIGNED: "3"
-  TRELLO_LIST_NAME: "New ✨"
+  TRELLO_LIST_NAME: "Next ✨"
+  BACKLOG_LIST_NAME: "Backlog 📋"
+  BACKLOG_LABEL_NAME: "P1"
+  BACKLOG_FALLBACK_LABEL_NAME: "P2"
+  BACKLOG_TOP_N: "3"
   MEMORY_FILE_PATH: "/data/memory.json"
+  # Dead-man's-switch: pinged after each successful daily briefing (e.g. a
+  # healthchecks.io check URL); the service alerts when briefings go silent.
+  # Empty disables the ping.
+  HEALTHCHECK_PING_URL: ""

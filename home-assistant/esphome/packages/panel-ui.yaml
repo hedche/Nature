@@ -1,0 +1,1344 @@
+# Bedroom panel — shared UI layer.
+#
+# Everything here describes what is on the screen and how it behaves. There is
+# deliberately no hardware and no data source in this file, because it is
+# included by BOTH targets:
+#
+#   ../bedroom-panel.yaml      the real Guition 4848S040 (ST7701S + GT911)
+#   ../bedroom-panel-sim.yaml  the SDL simulator on the Mac (see ../sim.sh)
+#
+# The contract with whichever file includes it:
+#
+#   provides   display id `lcd`, touchscreen id `panel_touch`,
+#              dimmable light id `backlight`, button id `panel_restart`,
+#              substitutions ${sonos_entity}, ${alarm_time_entity} and
+#              ${light_N_entity} / ${light_N_name} / ${light_N_icon} for
+#              N = 1..4, and an `api:` block — the media, light and alarm
+#              buttons call homeassistant.action, which does not exist
+#              without it (the error points at an LVGL button, not at the
+#              missing key)
+#   wires      its touchscreen triggers to touch_begin / touch_move / touch_end
+#   pushes     data in by calling the ui_* scripts below — nothing in here
+#              reads a sensor directly, which is exactly what lets the
+#              simulator drive the same UI with mock values
+#
+# Keep that contract stable: if you add a ui_* script, both targets should be
+# able to call it, and a change here must be verified in the simulator before
+# it goes near the panel.
+
+globals:
+  - id: touch_start_x
+    type: int
+    initial_value: "0"
+  - id: touch_start_y
+    type: int
+    initial_value: "0"
+  - id: touch_last_x
+    type: int
+    initial_value: "0"
+  - id: touch_last_y
+    type: int
+    initial_value: "0"
+  - id: settings_open
+    type: bool
+    initial_value: "false"
+  # Brightness the user last chose, so waking from the idle dim restores it
+  # instead of stranding the panel at the dim level.
+  - id: user_brightness
+    type: float
+    initial_value: "0.8"
+  - id: idle_dimmed
+    type: bool
+    initial_value: "false"
+  # True for the duration of a touch that only woke the screen (from the idle
+  # dim or the pause). LVGL still delivers that touch to whatever is under the
+  # finger, so tap handlers check this to avoid acting on it.
+  - id: wake_tap
+    type: bool
+    initial_value: "false"
+  - id: art_url
+    type: std::string
+    initial_value: '""'
+  # Alarm state. alarm_h/alarm_m are the panel's working copy of the wake-up
+  # time (24h); -1 hours means HA hasn't said yet, and both the weather-page
+  # chip and the editor show --:-- and refuse to commit. alarm_repeat counts
+  # the long-press repeats of the current hold so alarm_step can accelerate;
+  # alarm_armed_s is the raw arm-flag state ("on"/"off"/anything else =
+  # unknown) so alarm_render can paint chip and editor from one place.
+  - id: alarm_open
+    type: bool
+    initial_value: "false"
+  - id: alarm_h
+    type: int
+    initial_value: "-1"
+  - id: alarm_m
+    type: int
+    initial_value: "0"
+  - id: alarm_repeat
+    type: int
+    initial_value: "0"
+  - id: alarm_armed_s
+    type: std::string
+    initial_value: '"unknown"'
+
+script:
+  # ---------- Touch gestures ----------
+  # The gesture logic lives here rather than under `touchscreen:` so that the
+  # GT911 and the SDL mouse emulation get identical behaviour; each target
+  # only has to forward its trigger to these three scripts.
+  - id: touch_begin
+    parameters:
+      x: int
+      y: int
+    then:
+      - lambda: |-
+          id(touch_start_x) = x;
+          id(touch_start_y) = y;
+          id(touch_last_x) = x;
+          id(touch_last_y) = y;
+          id(wake_tap) = false;
+      - if:
+          condition: lvgl.is_paused
+          then:
+            - light.turn_on:
+                id: backlight
+                brightness: !lambda "return id(user_brightness);"
+            - globals.set:
+                id: idle_dimmed
+                value: "false"
+            - globals.set:
+                id: wake_tap
+                value: "true"
+            - lvgl.resume:
+            - lvgl.widget.redraw:
+      # Screen still running but dimmed by the idle timeout: bring the
+      # brightness back. LVGL sees this touch regardless, so whether it also
+      # acts is up to each tap handler via wake_tap: the light tiles refuse it
+      # (a toggled hall light at 3am is a real consequence), the media buttons
+      # deliberately do not (a redundant play/pause is not).
+      - if:
+          condition:
+            lambda: "return id(idle_dimmed);"
+          then:
+            - light.turn_on:
+                id: backlight
+                brightness: !lambda "return id(user_brightness);"
+            - globals.set:
+                id: idle_dimmed
+                value: "false"
+            - globals.set:
+                id: wake_tap
+                value: "true"
+  - id: touch_move
+    parameters:
+      x: int
+      y: int
+    then:
+      - lambda: |-
+          id(touch_last_x) = x;
+          id(touch_last_y) = y;
+  # ESPHome LVGL has no swipe gesture trigger; detect it from the travel
+  # between first touch and release. The 60px threshold keeps ordinary button
+  # taps from turning the page, and on the music page gestures starting in
+  # the bottom band (y > 380) are ignored so dragging the volume slider isn't
+  # read as a swipe. Other pages have nothing draggable, so the whole screen
+  # swipes there — the lights page's bottom row would otherwise be dead.
+  - id: touch_end
+    then:
+      # Swipe down from the top edge -> settings drawer (not over the alarm
+      # editor, which is modal).
+      - if:
+          condition:
+            and:
+              - not: lvgl.is_paused
+              - lambda: "return !id(settings_open) && !id(alarm_open);"
+              - lambda: "return id(touch_start_y) <= 60;"
+              - lambda: "return id(touch_last_y) - id(touch_start_y) > 70;"
+          then:
+            - script.execute: open_settings
+      # Swipe up anywhere while the settings drawer is open -> close it.
+      - if:
+          condition:
+            and:
+              - lambda: "return id(settings_open);"
+              - lambda: "return id(touch_start_y) - id(touch_last_y) > 70;"
+          then:
+            - script.execute: close_settings
+      # Swipe down anywhere while the alarm editor is open -> close it (the
+      # Close button works too; this is the fling-it-away affordance).
+      - if:
+          condition:
+            and:
+              - lambda: "return id(alarm_open);"
+              - lambda: "return id(touch_last_y) - id(touch_start_y) > 70;"
+          then:
+            - script.execute: close_alarm
+      - if:
+          condition:
+            and:
+              - not: lvgl.is_paused
+              - lambda: "return !id(settings_open) && !id(alarm_open);"
+              - or:
+                  - not:
+                      lvgl.page.is_showing: music_page
+                  - lambda: "return id(touch_start_y) <= 380;"
+              - lambda: "return id(touch_last_x) - id(touch_start_x) < -60;"
+          then:
+            - lvgl.page.next:
+                animation: OUT_LEFT
+                time: 250ms
+      - if:
+          condition:
+            and:
+              - not: lvgl.is_paused
+              - lambda: "return !id(settings_open) && !id(alarm_open);"
+              - or:
+                  - not:
+                      lvgl.page.is_showing: music_page
+                  - lambda: "return id(touch_start_y) <= 380;"
+              - lambda: "return id(touch_last_x) - id(touch_start_x) > 60;"
+          then:
+            - lvgl.page.previous:
+                animation: OUT_RIGHT
+                time: 250ms
+
+  - id: open_settings
+    then:
+      - globals.set:
+          id: settings_open
+          value: "true"
+      # Reflect the chosen backlight level before showing the slider. Use the
+      # stored value, not the live one, so opening it while idle-dimmed does
+      # not snap the slider (and the screen) down to the dim level.
+      - lvgl.slider.update:
+          id: brightness_slider
+          value: !lambda "return id(user_brightness) * 100.0f;"
+      - lvgl.widget.show: settings_panel
+  - id: close_settings
+    then:
+      - globals.set:
+          id: settings_open
+          value: "false"
+      - lvgl.widget.hide: settings_panel
+
+  # ---------- Alarm editor ----------
+  # A modal page (skip: true keeps it out of the swipe rotation), opened by
+  # tapping the alarm chip on the weather page and closed by its Close
+  # button or a swipe down. It edits the wake-up time behind
+  # ${alarm_time_entity}: the working copy is alarm_h/alarm_m, every step
+  # renders locally, and one input_datetime.set_datetime goes to HA per
+  # interaction — on button release / AM-PM tap — so a held button doesn't
+  # fire a call every 100ms. alarm_open (not page.is_showing) gates the
+  # gesture scripts, and closing always returns to the weather page the
+  # chip lives on.
+  - id: open_alarm
+    then:
+      - globals.set:
+          id: alarm_open
+          value: "true"
+      - script.execute: alarm_render
+      - lvgl.page.show:
+          id: alarm_page
+          animation: OVER_BOTTOM
+          time: 250ms
+  - id: close_alarm
+    then:
+      - globals.set:
+          id: alarm_open
+          value: "false"
+      - lvgl.page.show:
+          id: weather_page
+          animation: OUT_BOTTOM
+          time: 250ms
+  # One press or hold-repeat of the +/- buttons, dir = +1/-1. The step grows
+  # with the hold (alarm_repeat counts LVGL's long-press repeats, one every
+  # 100ms after the first 400ms): the first second nudges a minute at a
+  # time, then it jumps in 5s, then flies in 15s. Coarse steps snap to their
+  # grid so racing past "7:30" never strands you on "7:33", and minutes roll
+  # through the hour (and the day) in both directions.
+  - id: alarm_step
+    parameters:
+      dir: int
+    then:
+      - lambda: |-
+          if (id(alarm_h) < 0) { id(alarm_h) = 7; id(alarm_m) = 0; }
+          int r = id(alarm_repeat)++;
+          int step = r < 10 ? 1 : (r < 25 ? 5 : 15);
+          int t = id(alarm_h) * 60 + id(alarm_m);
+          if (step == 1) t += dir;
+          else if (dir > 0) t = (t / step + 1) * step;
+          else t = ((t % step) ? t / step : t / step - 1) * step;
+          t = ((t % 1440) + 1440) % 1440;
+          id(alarm_h) = t / 60;
+          id(alarm_m) = t % 60;
+      - script.execute: alarm_render
+  # Redraw everything the alarm owns — the weather-page chip and the editor
+  # — from alarm_h/alarm_m/alarm_armed_s. Both surfaces are painted here and
+  # only here, like the light tiles, so the chip can never disagree with the
+  # editor and the AM/PM segment can never disagree with the hour.
+  - id: alarm_render
+    then:
+      - lambda: |-
+          const bool known = id(alarm_h) >= 0;
+          const bool armed = id(alarm_armed_s) == "on";
+          const bool dead  = !(armed || id(alarm_armed_s) == "off");
+
+          // ---- editor: big time + AM/PM segment ----
+          if (known) {
+            int h12 = id(alarm_h) % 12;
+            if (h12 == 0) h12 = 12;
+            lv_label_set_text_fmt(id(lbl_alarm_time), "%d:%02d", h12, id(alarm_m));
+            const bool pm = id(alarm_h) >= 12;
+            for (lv_obj_t *o : {id(btn_am), id(lbl_am)}) {
+              if (pm) lv_obj_remove_state(o, LV_STATE_CHECKED); else lv_obj_add_state(o, LV_STATE_CHECKED);
+            }
+            for (lv_obj_t *o : {id(btn_pm), id(lbl_pm)}) {
+              if (pm) lv_obj_add_state(o, LV_STATE_CHECKED); else lv_obj_remove_state(o, LV_STATE_CHECKED);
+            }
+          } else {
+            lv_label_set_text(id(lbl_alarm_time), "--:--");
+            for (lv_obj_t *o : {id(btn_am), id(lbl_am), id(btn_pm), id(lbl_pm)})
+              lv_obj_remove_state(o, LV_STATE_CHECKED);
+          }
+
+          // ---- editor: armed status line ----
+          lv_obj_t *st = id(lbl_alarm_status);
+          lv_label_set_text(st, dead ? "Unavailable" : armed ? "Armed" : "Not armed");
+          lv_obj_set_style_text_color(st,
+            lv_color_hex(dead ? 0xC9776B : armed ? 0xEFB44C : 0x808080), 0);
+
+          // ---- weather-page chip ----
+          // Armed is the state worth reading across a dark room, so it alone
+          // gets the amber; disarmed recedes to grey and keeps the time
+          // legible, and the whole chip greys out when HA has not spoken.
+          if (known) {
+            int h12 = id(alarm_h) % 12;
+            if (h12 == 0) h12 = 12;
+            lv_label_set_text_fmt(id(lbl_chip_time), "%d:%02d", h12, id(alarm_m));
+            lv_label_set_text(id(lbl_chip_ampm), id(alarm_h) >= 12 ? "PM" : "AM");
+          } else {
+            lv_label_set_text(id(lbl_chip_time), "--:--");
+            lv_label_set_text(id(lbl_chip_ampm), "");
+          }
+          const uint32_t fg = dead ? 0x565C64 : armed ? 0xEFB44C : 0x9AA0A8;
+          lv_obj_set_style_text_color(id(lbl_chip_icon), lv_color_hex(fg), 0);
+          lv_obj_set_style_text_color(id(lbl_chip_time), lv_color_hex(dead ? 0x565C64 : 0xE0E0E0), 0);
+          lv_obj_set_style_text_color(id(lbl_chip_ampm), lv_color_hex(dead ? 0x565C64 : 0x9AA0A8), 0);
+          lv_obj_set_style_text_color(id(lbl_chip_state), lv_color_hex(fg), 0);
+          lv_label_set_text(id(lbl_chip_state), dead ? "Unavailable" : armed ? "Armed" : "Off");
+          // mdi alarm / alarm-off — the state word underneath says the same
+          // thing in words, so the pair only has to be distinguishable.
+          lv_label_set_text(id(lbl_chip_icon), armed ? "\U000F0020" : "\U000F0023");
+          lv_obj_set_style_border_color(id(chip_alarm),
+            lv_color_hex(armed ? 0x5A4520 : 0x2A2F36), 0);
+  - id: alarm_commit
+    then:
+      - if:
+          condition:
+            # Never write while the time is unknown — that would turn a
+            # stray release into a 00:00 alarm, which the ring automation
+            # reads as "never configured".
+            lambda: "return id(alarm_h) >= 0;"
+          then:
+            - homeassistant.action:
+                action: input_datetime.set_datetime
+                data:
+                  entity_id: ${alarm_time_entity}
+                  time: !lambda 'return str_sprintf("%02d:%02d:00", id(alarm_h), id(alarm_m));'
+  # Chip tap -> editor. Same three guards as the light tiles: a page swipe
+  # that starts and ends on the chip must not open it, the touch that woke a
+  # dimmed screen must not either, and the settings drawer overlaps the chip
+  # so its tap-outside-to-dismiss must not fall through.
+  - id: tap_alarm_chip
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return !id(wake_tap) && !id(settings_open) &&
+                     std::abs(id(touch_last_x) - id(touch_start_x)) < 24 &&
+                     std::abs(id(touch_last_y) - id(touch_start_y)) < 24;
+          then:
+            - script.execute: open_alarm
+
+  # ---------- Data -> screen ----------
+  # The only way data reaches this UI. Each script takes the raw value as `x`
+  # and owns the formatting, so the real panel (Home Assistant sensors) and the
+  # simulator (mock values) render through exactly the same code.
+  - id: ui_temp_min
+    parameters:
+      x: float
+    then:
+      - lvgl.label.update:
+          id: lbl_min
+          text: !lambda 'return str_sprintf("%.0f°", x);'
+  - id: ui_temp_max
+    parameters:
+      x: float
+    then:
+      - lvgl.label.update:
+          id: lbl_max
+          text: !lambda 'return str_sprintf("%.0f°", x);'
+  - id: ui_rain_mm
+    parameters:
+      x: float
+    then:
+      - lvgl.label.update:
+          id: lbl_rain_mm
+          # A trace of rain must not read as a dry day: "%.1f" turns any
+          # total under 0.05mm into "0.0 mm", so say "<0.1 mm" instead.
+          text: !lambda |-
+            if (x > 0.0f && x < 0.05f) return std::string("<0.1 mm rain today");
+            return str_sprintf("%.1f mm rain today", x);
+  - id: ui_rain_when
+    parameters:
+      x: string
+    then:
+      - lvgl.label.update:
+          id: lbl_rain_when
+          text: !lambda "return x;"
+  - id: ui_weather
+    parameters:
+      x: string
+    then:
+      - lvgl.label.update:
+          id: lbl_weather_icon
+          text: !lambda |-
+            if (x == "sunny") return "\U000F0599";
+            if (x == "partlycloudy") return "\U000F0595";
+            if (x == "cloudy") return "\U000F0590";
+            if (x == "fog") return "\U000F0591";
+            if (x == "lightning") return "\U000F0593";
+            if (x == "lightning-rainy") return "\U000F067E";
+            if (x == "pouring") return "\U000F0596";
+            if (x == "rainy" || x == "hail") return "\U000F0597";
+            if (x == "snowy" || x == "snowy-rainy") return "\U000F0598";
+            if (x == "clear-night") return "\U000F0594";
+            if (x == "windy" || x == "windy-variant") return "\U000F059D";
+            return "\U000F0590";
+  - id: ui_media_title
+    parameters:
+      x: string
+    then:
+      - lvgl.label.update:
+          id: lbl_title
+          text: !lambda 'return x.empty() ? "Nothing playing" : x;'
+  - id: ui_media_artist
+    parameters:
+      x: string
+    then:
+      - lvgl.label.update:
+          id: lbl_artist
+          text: !lambda "return x;"
+  - id: ui_media_art
+    parameters:
+      x: string
+    then:
+      - if:
+          condition:
+            lambda: "return x.rfind(\"http\", 0) == 0;"
+          then:
+            - lambda: |-
+                id(art_url) = x;
+                id(album_art).set_url(x);
+            - component.update: album_art
+          else:
+            - lvgl.widget.hide: img_art
+  - id: ui_media_state
+    parameters:
+      x: string
+    then:
+      - lvgl.label.update:
+          id: lbl_play_pause
+          text: !lambda 'return std::string(x == "playing" ? "\U000F03E4" : "\U000F040A");'
+  - id: ui_volume
+    parameters:
+      x: float
+    then:
+      - lvgl.slider.update:
+          id: vol_slider
+          value: !lambda "return x * 100;"
+  - id: ui_net_rssi
+    parameters:
+      x: float
+    then:
+      - lvgl.label.update:
+          id: lbl_wifi
+          text: !lambda 'return str_sprintf("WiFi %.0f dBm", x);'
+  - id: ui_net_ip
+    parameters:
+      x: string
+    then:
+      - lvgl.label.update:
+          id: lbl_ip
+          text: !lambda "return x;"
+
+  # Alarm: HA sends the time as "HH:MM:SS" (24h); anything unparsable —
+  # "unavailable", "unknown", a blank — renders as --:-- on both the chip and
+  # the editor, and blocks committing until HA speaks again.
+  - id: ui_alarm_time
+    parameters:
+      x: string
+    then:
+      - lambda: |-
+          int h, m;
+          if (sscanf(x.c_str(), "%d:%d", &h, &m) == 2 && h >= 0 && h < 24 && m >= 0 && m < 60) {
+            id(alarm_h) = h;
+            id(alarm_m) = m;
+          } else {
+            id(alarm_h) = -1;
+          }
+      - script.execute: alarm_render
+  - id: ui_alarm_armed
+    parameters:
+      x: string
+    then:
+      - lambda: "id(alarm_armed_s) = x;"
+      - script.execute: alarm_render
+
+  # ---------- Lights page ----------
+  # n is the 1-based tile index, x the raw HA state string. "on" -> the tile
+  # takes LVGL's checked look, "off" -> the default look, anything else
+  # (unavailable, unknown) -> disabled: dimmed, labelled, and LVGL itself stops
+  # delivering clicks to it. The tile never changes on a tap; it only ever
+  # reflects what HA last reported through here, so a rejected toggle simply
+  # stays as it was instead of lying.
+  - id: ui_light
+    parameters:
+      n: int
+      x: string
+    then:
+      - lambda: |-
+          lv_obj_t *tile, *icon, *state;
+          switch (n) {
+            case 1: tile = id(tile_1); icon = id(tile_1_icon); state = id(tile_1_state); break;
+            case 2: tile = id(tile_2); icon = id(tile_2_icon); state = id(tile_2_state); break;
+            case 3: tile = id(tile_3); icon = id(tile_3_icon); state = id(tile_3_state); break;
+            case 4: tile = id(tile_4); icon = id(tile_4_icon); state = id(tile_4_state); break;
+            default: return;
+          }
+          const bool on = (x == "on"), off = (x == "off"), dead = !(on || off);
+          // The labels get the same states so their own per-state colours apply.
+          for (lv_obj_t *o : {tile, icon, state}) {
+            if (on)   lv_obj_add_state(o, LV_STATE_CHECKED);  else lv_obj_remove_state(o, LV_STATE_CHECKED);
+            if (dead) lv_obj_add_state(o, LV_STATE_DISABLED); else lv_obj_remove_state(o, LV_STATE_DISABLED);
+          }
+          lv_label_set_text(state, on ? "On" : off ? "Off" : "Unavailable");
+  # Tap -> HA. Three guards, all needed:
+  #  * travel: LVGL 9 still delivers CLICKED after a drag when nothing on the
+  #    page scrolls, so a page swipe that starts and ends on the same 212px
+  #    tile would toggle it. The gesture scripts already record the travel.
+  #  * wake_tap: the touch that woke a dimmed/paused screen lands on a tile
+  #    too, and nobody wants the stair light toggled by reaching for the panel.
+  #  * settings_open: the drawer only covers the top 320px, so LVGL happily
+  #    delivers a "tap outside to dismiss" below it to the bottom tiles and
+  #    the All-off bar underneath. alarm_open rides along: the editor is a
+  #    full page so nothing shows through today, but the guard costs nothing
+  #    and outlives that layout choice.
+  - id: tap_light
+    parameters:
+      n: int
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return !id(wake_tap) && !id(settings_open) && !id(alarm_open) &&
+                     std::abs(id(touch_last_x) - id(touch_start_x)) < 24 &&
+                     std::abs(id(touch_last_y) - id(touch_start_y)) < 24;
+          then:
+            - homeassistant.action:
+                # Domain-agnostic, so a light.* and a switch.* tile behave the same.
+                action: homeassistant.toggle
+                data:
+                  entity_id: !lambda |-
+                    switch (n) {
+                      case 1: return std::string("${light_1_entity}");
+                      case 2: return std::string("${light_2_entity}");
+                      case 3: return std::string("${light_3_entity}");
+                      default: return std::string("${light_4_entity}");
+                    }
+  - id: tap_all_off
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return !id(wake_tap) && !id(settings_open) && !id(alarm_open) &&
+                     std::abs(id(touch_last_x) - id(touch_start_x)) < 24 &&
+                     std::abs(id(touch_last_y) - id(touch_start_y)) < 24;
+          then:
+            - homeassistant.action:
+                action: homeassistant.turn_off
+                data:
+                  # HA accepts a comma-separated entity list here.
+                  entity_id: "${light_1_entity},${light_2_entity},${light_3_entity},${light_4_entity}"
+
+# ---------- Album artwork download ----------
+
+http_request:
+  timeout: 10s
+
+# Sonos art is JPEG for library tracks but PNG for many radio stations,
+# and this ESPHome version (2026.7.4, pinned to the add-on) predates the
+# auto-sniffing format. So: try the JPEG decoder first and fall back to a
+# PNG decoder instance for the same URL. (Replace both with one
+# `format: AUTO` instance once the add-on ships it.)
+online_image:
+  - id: album_art
+    # Placeholder; the real signed proxy URL is pushed from HA via
+    # sensor.panel_media_art and set with set_url() before each update.
+    url: "http://10.30.1.60:8123/"
+    type: RGB565
+    format: jpeg
+    resize: 140x140
+    update_interval: never
+    on_download_finished:
+      - lvgl.image.update:
+          id: img_art
+          src: album_art
+      - lvgl.widget.show: img_art
+    on_error:
+      - lambda: "id(album_art_png).set_url(id(art_url));"
+      - component.update: album_art_png
+  - id: album_art_png
+    url: "http://10.30.1.60:8123/"
+    type: RGB565
+    format: png
+    resize: 140x140
+    update_interval: never
+    on_download_finished:
+      - lvgl.image.update:
+          id: img_art
+          src: album_art_png
+      - lvgl.widget.show: img_art
+    on_error:
+      - lvgl.widget.hide: img_art
+
+# ---------- Fonts ----------
+
+font:
+  - file: "gfonts://Roboto"
+    id: font_small
+    size: 22
+  - file: "gfonts://Roboto"
+    id: font_med
+    size: 32
+  - file: "gfonts://Roboto@700"
+    id: font_big
+    size: 72
+  # Lights page: tile name (medium weight, so it holds up on the amber tile)
+  # and the small state word.
+  - file: "gfonts://Roboto@500"
+    id: font_tile
+    size: 22
+  - file: "gfonts://Roboto"
+    id: font_tiny
+    size: 20
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_42
+    size: 42
+    glyphs:
+      - "\U000F04AE" # skip-previous
+      - "\U000F040A" # play
+      - "\U000F03E4" # pause
+      - "\U000F04AD" # skip-next
+      - "\U000F057E" # volume-high
+      - "\U000F00DE" # brightness-6
+      - "\U000F0425" # power
+      - "\U000F0709" # restart
+      - "\U000F0156" # close
+      - "\U000F0415" # plus  (alarm editor)
+      - "\U000F0374" # minus (alarm editor)
+      # Lights page tile icons. The device YAML picks one per tile through
+      # ${light_N_icon}; anything it picks must be in this list, so it is
+      # deliberately wider than what is in use today.
+      - "\U000F06B5" # lamp
+      - "\U000F08DD" # floor-lamp
+      - "\U000F095F" # desk-lamp
+      - "\U000F0769" # ceiling-light
+      - "\U000F091C" # wall-sconce
+      - "\U000F0335" # lightbulb
+      - "\U000F0336" # lightbulb-outline
+      - "\U000F04CD" # stairs
+      - "\U000F125F" # bookshelf
+      - "\U000F0A70" # silverware-fork-knife
+      - "\U000F09A0" # shower
+      - "\U000F02E3" # bed
+      - "\U000F04B9" # sofa
+      - "\U000F12CD" # lightbulb-group-off (All off)
+  # Weather-page alarm chip only — the 42px icons are too heavy for it.
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_28
+    size: 28
+    glyphs:
+      - "\U000F0020" # alarm      (armed)
+      - "\U000F0023" # alarm-off  (not armed)
+  - file: "fonts/materialdesignicons-webfont.ttf"
+    id: mdi_96
+    size: 96
+    glyphs:
+      - "\U000F0599" # weather-sunny
+      - "\U000F0595" # weather-partly-cloudy
+      - "\U000F0590" # weather-cloudy
+      - "\U000F0591" # weather-fog
+      - "\U000F0593" # weather-lightning
+      - "\U000F067E" # weather-lightning-rainy
+      - "\U000F0596" # weather-pouring
+      - "\U000F0597" # weather-rainy
+      - "\U000F0598" # weather-snowy
+      - "\U000F0594" # weather-night
+      - "\U000F059D" # weather-windy
+
+# ---------- UI ----------
+
+lvgl:
+  buffer_size: 25%
+  displays: [lcd]
+  touchscreens: [panel_touch]
+  on_idle:
+    - timeout: 45s
+      then:
+        - light.turn_on:
+            id: backlight
+            brightness: 25%
+        - globals.set:
+            id: idle_dimmed
+            value: "true"
+    - timeout: 5min
+      then:
+        - light.turn_off: backlight
+        - globals.set:
+            id: idle_dimmed
+            value: "false"
+        - lvgl.pause:
+            show_snow: false
+  # Settings drawer: swipe down from the top edge to open, swipe up or
+  # Close to dismiss. Lives on the top layer so it overlays either page.
+  top_layer:
+    widgets:
+      - obj:
+          id: settings_panel
+          hidden: true
+          align: TOP_MID
+          width: 480
+          height: 320
+          bg_color: 0x14181D
+          border_width: 0
+          radius: 0
+          pad_all: 24
+          widgets:
+            - label:
+                text: "Settings"
+                text_font: font_med
+                text_color: 0xFFFFFF
+                align: TOP_LEFT
+            - button:
+                align: TOP_RIGHT
+                width: 56
+                height: 56
+                radius: 28
+                widgets:
+                  - label:
+                      text: "\U000F0156" # close
+                      text_font: mdi_42
+                      align: CENTER
+                on_click:
+                  - script.execute: close_settings
+            - label:
+                text: "\U000F00DE" # brightness
+                text_font: mdi_42
+                text_color: 0xB0B0B0
+                align: LEFT_MID
+                y: -20
+            - slider:
+                id: brightness_slider
+                align: LEFT_MID
+                x: 70
+                y: -20
+                width: 330
+                height: 14
+                # 25% is the lowest duty that is still clearly readable on
+                # this panel — anything under it looks like the screen is off.
+                min_value: 25
+                max_value: 100
+                on_value:
+                  - globals.set:
+                      id: user_brightness
+                      value: !lambda "return x / 100.0f;"
+                  - globals.set:
+                      id: idle_dimmed
+                      value: "false"
+                  - light.turn_on:
+                      id: backlight
+                      brightness: !lambda "return x / 100.0;"
+            - button:
+                align: BOTTOM_LEFT
+                width: 130
+                height: 64
+                widgets:
+                  - label:
+                      text: "\U000F0425" # power -> screen off
+                      text_font: mdi_42
+                      align: CENTER
+                on_click:
+                  - script.execute: close_settings
+                  - light.turn_off: backlight
+                  - lvgl.pause:
+                      show_snow: false
+            - button:
+                align: BOTTOM_MID
+                width: 130
+                height: 64
+                widgets:
+                  - label:
+                      text: "\U000F0709" # restart
+                      text_font: mdi_42
+                      align: CENTER
+                on_click:
+                  - button.press: panel_restart
+            - obj:
+                align: BOTTOM_RIGHT
+                width: 150
+                height: 64
+                bg_opa: TRANSP
+                border_width: 0
+                pad_all: 0
+                widgets:
+                  - label:
+                      id: lbl_wifi
+                      text: "WiFi --"
+                      text_font: font_small
+                      text_color: 0x808080
+                      align: TOP_RIGHT
+                  - label:
+                      id: lbl_ip
+                      text: "--"
+                      text_font: font_small
+                      text_color: 0x808080
+                      align: BOTTOM_RIGHT
+  pages:
+    - id: weather_page
+      bg_color: 0x000000
+      widgets:
+        # Alarm chip, in the dead space left of the weather icon: bell, the
+        # wake-up time, and whether button 2 has it armed. Tapping it opens
+        # the alarm editor — the only way in, which is why it looks like a
+        # button rather than a readout. alarm_render owns every colour and
+        # string in here; nothing is set at build time except the fallbacks.
+        - button:
+            id: chip_alarm
+            align: TOP_LEFT
+            x: 16
+            y: 24
+            width: 160
+            height: 130
+            radius: 24
+            pad_all: 0
+            shadow_width: 0
+            bg_opa: COVER
+            bg_color: 0x101418
+            border_width: 1
+            border_color: 0x2A2F36
+            pressed:
+              bg_color: 0x1B1F25
+              border_color: 0x9AA0A8
+            widgets:
+              - label:
+                  id: lbl_chip_icon
+                  text: "\U000F0023" # alarm-off until HA speaks
+                  text_font: mdi_28
+                  text_color: 0x565C64
+                  align: TOP_LEFT
+                  x: 16
+                  y: 14
+              - label:
+                  id: lbl_chip_ampm
+                  text: ""
+                  text_font: font_tiny
+                  text_color: 0x565C64
+                  align: TOP_RIGHT
+                  x: -16
+                  y: 20
+              - label:
+                  id: lbl_chip_time
+                  text: "--:--"
+                  text_font: font_med
+                  text_color: 0x565C64
+                  align: LEFT_MID
+                  x: 16
+                  y: 0
+              - label:
+                  id: lbl_chip_state
+                  text: "..."
+                  text_font: font_tiny
+                  text_color: 0x565C64
+                  align: BOTTOM_LEFT
+                  x: 16
+                  y: -14
+            on_click:
+              - script.execute: tap_alarm_chip
+        - label:
+            id: lbl_weather_icon
+            text: "\U000F0590"
+            text_font: mdi_96
+            text_color: 0xE0E0E0
+            align: TOP_MID
+            y: 30
+        - obj:
+            align: CENTER
+            y: 10
+            width: SIZE_CONTENT
+            height: SIZE_CONTENT
+            bg_opa: TRANSP
+            border_width: 0
+            pad_all: 0
+            layout:
+              type: flex
+              flex_flow: ROW
+              pad_column: 40
+            widgets:
+              - label:
+                  id: lbl_min
+                  text: "--°"
+                  text_font: font_big
+                  text_color: 0x4FA8FF
+              - label:
+                  id: lbl_max
+                  text: "--°"
+                  text_font: font_big
+                  text_color: 0xFF8C42
+        - label:
+            id: lbl_rain_mm
+            text: "-- mm"
+            text_font: font_med
+            text_color: 0xB0C4DE
+            align: BOTTOM_MID
+            y: -85
+        - label:
+            id: lbl_rain_when
+            text: "..."
+            text_font: font_small
+            text_color: 0x808080
+            align: BOTTOM_MID
+            y: -40
+    - id: music_page
+      bg_color: 0x000000
+      widgets:
+        - label:
+            id: lbl_title
+            text: "Nothing playing"
+            text_font: font_med
+            text_color: 0xFFFFFF
+            align: TOP_MID
+            y: 60
+            width: 440
+            text_align: CENTER
+            long_mode: SCROLL_CIRCULAR
+        - label:
+            id: lbl_artist
+            text: ""
+            text_font: font_small
+            text_color: 0xA0A0A0
+            align: TOP_MID
+            y: 110
+            width: 440
+            text_align: CENTER
+            long_mode: SCROLL_CIRCULAR
+        - image:
+            id: img_art
+            src: album_art
+            align: TOP_MID
+            y: 145
+            hidden: true
+        - obj:
+            align: CENTER
+            y: 95
+            width: SIZE_CONTENT
+            height: SIZE_CONTENT
+            bg_opa: TRANSP
+            border_width: 0
+            pad_all: 0
+            layout:
+              type: flex
+              flex_flow: ROW
+              pad_column: 35
+            widgets:
+              - button:
+                  width: 90
+                  height: 90
+                  radius: 45
+                  widgets:
+                    - label:
+                        text: "\U000F04AE"
+                        text_font: mdi_42
+                        align: CENTER
+                  on_click:
+                    - homeassistant.action:
+                        action: media_player.media_previous_track
+                        data:
+                          entity_id: ${sonos_entity}
+              - button:
+                  width: 90
+                  height: 90
+                  radius: 45
+                  widgets:
+                    - label:
+                        id: lbl_play_pause
+                        text: "\U000F040A"
+                        text_font: mdi_42
+                        align: CENTER
+                  on_click:
+                    - homeassistant.action:
+                        action: media_player.media_play_pause
+                        data:
+                          entity_id: ${sonos_entity}
+              - button:
+                  width: 90
+                  height: 90
+                  radius: 45
+                  widgets:
+                    - label:
+                        text: "\U000F04AD"
+                        text_font: mdi_42
+                        align: CENTER
+                  on_click:
+                    - homeassistant.action:
+                        action: media_player.media_next_track
+                        data:
+                          entity_id: ${sonos_entity}
+        - label:
+            text: "\U000F057E"
+            text_font: mdi_42
+            text_color: 0xA0A0A0
+            align: BOTTOM_LEFT
+            x: 20
+            y: -42
+        - slider:
+            id: vol_slider
+            align: BOTTOM_MID
+            x: 25
+            y: -55
+            width: 370
+            height: 12
+            min_value: 0
+            max_value: 100
+            # on_release (not on_value) so HA volume updates pushed into the
+            # slider don't echo straight back as volume_set calls.
+            on_release:
+              - homeassistant.action:
+                  action: media_player.volume_set
+                  data:
+                    entity_id: ${sonos_entity}
+                    volume_level: !lambda "return x / 100.0;"
+    - id: lights_page
+      bg_color: 0x000000
+      widgets:
+        # Four 212x156 tiles in a 2x2 grid over a full-width "All off" bar,
+        # 16px gutters, 20px side margins, vertically centred (28px top and
+        # bottom). The tile itself is light-tile.yaml, included once per
+        # light; tiles start out looking unavailable ("...") until HA pushes
+        # each light's state through ui_light.
+        #
+        # The grid is the whole screen with the margins as its padding, not a
+        # 440x424 box: LVGL clips children to the parent's coords, and the
+        # tiles' pressed ring is drawn 5px outside the tile — in a tight box
+        # it survived only on the gutter sides and every tile pressed as an L.
+        - obj:
+            id: lights_grid
+            align: CENTER
+            width: 480
+            height: 480
+            bg_opa: TRANSP
+            border_width: 0
+            pad_left: 20
+            pad_right: 20
+            pad_top: 28
+            pad_bottom: 28
+            scrollable: false
+            layout:
+              type: grid
+              grid_columns: [212, 212]
+              grid_rows: [156, 156, 80]
+              pad_column: 16
+              pad_row: 16
+            widgets:
+              - !include
+                  file: light-tile.yaml
+                  vars:
+                    n: 1
+                    col: 0
+                    row: 0
+                    icon: "${light_1_icon}"
+                    name: "${light_1_name}"
+              - !include
+                  file: light-tile.yaml
+                  vars:
+                    n: 2
+                    col: 1
+                    row: 0
+                    icon: "${light_2_icon}"
+                    name: "${light_2_name}"
+              - !include
+                  file: light-tile.yaml
+                  vars:
+                    n: 3
+                    col: 0
+                    row: 1
+                    icon: "${light_3_icon}"
+                    name: "${light_3_name}"
+              - !include
+                  file: light-tile.yaml
+                  vars:
+                    n: 4
+                    col: 1
+                    row: 1
+                    icon: "${light_4_icon}"
+                    name: "${light_4_name}"
+              # All off: a ghost bar — outlined, not filled — so it reads as a
+              # secondary action next to the tiles.
+              - button:
+                  id: tile_all_off
+                  grid_cell_column_pos: 0
+                  grid_cell_column_span: 2
+                  grid_cell_row_pos: 2
+                  width: 440
+                  height: 80
+                  radius: 28
+                  pad_all: 0
+                  shadow_width: 0
+                  bg_opa: COVER
+                  bg_color: 0x000000
+                  border_width: 1
+                  border_color: 0x2A2F36
+                  text_color: 0x9AA0A8
+                  pressed:
+                    bg_color: 0x1B1F25
+                    border_color: 0x9AA0A8
+                  widgets:
+                    - label:
+                        text: "\U000F12CD" # lightbulb-group-off
+                        text_font: mdi_42
+                        align: LEFT_MID
+                        x: 22
+                    - label:
+                        text: "All off"
+                        text_font: font_tile
+                        align: LEFT_MID
+                        x: 78
+                  on_click:
+                    - script.execute: tap_all_off
+    # Alarm editor. Last in the list on purpose: LVGL shows the first page
+    # at boot, and the panel must wake on the weather page, not in here.
+    #
+    # A page rather than a drawer so it gets the whole screen, but
+    # `skip: true` keeps it out of the left/right swipe rotation — it is
+    # reachable only by tapping the weather page's alarm chip, and Close (or
+    # a swipe down) always goes back there. The gesture scripts gate on the
+    # alarm_open global, not on which page is showing, so the two stay in
+    # step even mid-animation.
+    - id: alarm_page
+      skip: true
+      bg_color: 0x14181D
+      pad_all: 0
+      scrollable: false
+      widgets:
+        - label:
+            text: "Alarm"
+            text_font: font_med
+            text_color: 0xFFFFFF
+            align: TOP_LEFT
+            x: 28
+            y: 28
+        - button:
+            align: TOP_RIGHT
+            x: -22
+            y: 22
+            width: 56
+            height: 56
+            radius: 28
+            widgets:
+              - label:
+                  text: "\U000F0156" # close
+                  text_font: mdi_42
+                  align: CENTER
+            on_click:
+              - script.execute: close_alarm
+        # Tap = one minute, hold = accelerating repeats (alarm_step).
+        # wake_tap mirrors the light tiles: a touch that only woke a
+        # dimmed screen must not edit the alarm. The single commit per
+        # interaction rides on the release.
+        - button:
+            id: btn_alarm_minus
+            align: LEFT_MID
+            x: 28
+            y: -12
+            width: 88
+            height: 88
+            radius: 44
+            widgets:
+              - label:
+                  text: "\U000F0374" # minus
+                  text_font: mdi_42
+                  align: CENTER
+            on_press:
+              - if:
+                  condition:
+                    lambda: "return !id(wake_tap);"
+                  then:
+                    - globals.set:
+                        id: alarm_repeat
+                        value: "0"
+                    - script.execute:
+                        id: alarm_step
+                        dir: -1
+            on_long_press_repeat:
+              - if:
+                  condition:
+                    lambda: "return !id(wake_tap);"
+                  then:
+                    - script.execute:
+                        id: alarm_step
+                        dir: -1
+            on_release:
+              - if:
+                  condition:
+                    lambda: "return !id(wake_tap);"
+                  then:
+                    - script.execute: alarm_commit
+        - label:
+            id: lbl_alarm_time
+            text: "--:--"
+            text_font: font_big
+            text_color: 0xFFFFFF
+            align: CENTER
+            y: -12
+            width: 240
+            text_align: CENTER
+        - button:
+            id: btn_alarm_plus
+            align: RIGHT_MID
+            x: -28
+            y: -12
+            width: 88
+            height: 88
+            radius: 44
+            widgets:
+              - label:
+                  text: "\U000F0415" # plus
+                  text_font: mdi_42
+                  align: CENTER
+            on_press:
+              - if:
+                  condition:
+                    lambda: "return !id(wake_tap);"
+                  then:
+                    - globals.set:
+                        id: alarm_repeat
+                        value: "0"
+                    - script.execute:
+                        id: alarm_step
+                        dir: 1
+            on_long_press_repeat:
+              - if:
+                  condition:
+                    lambda: "return !id(wake_tap);"
+                  then:
+                    - script.execute:
+                        id: alarm_step
+                        dir: 1
+            on_release:
+              - if:
+                  condition:
+                    lambda: "return !id(wake_tap);"
+                  then:
+                    - script.execute: alarm_commit
+        # AM/PM segment. Not checkable buttons: like the light tiles,
+        # the checked look is set only by alarm_render, so the segment
+        # can never disagree with the hour it annotates. The travel
+        # guard keeps a close-swipe that starts here from flipping it.
+        - obj:
+            align: CENTER
+            y: 84
+            width: 176
+            height: 48
+            radius: 24
+            bg_opa: COVER
+            bg_color: 0x1B1F25
+            border_width: 1
+            border_color: 0x2A2F36
+            pad_all: 4
+            scrollable: false
+            layout:
+              type: flex
+              flex_flow: ROW
+              pad_column: 0
+            widgets:
+              - button:
+                  id: btn_am
+                  width: 84
+                  height: 40
+                  radius: 18
+                  pad_all: 0
+                  shadow_width: 0
+                  bg_opa: COVER
+                  bg_color: 0x1B1F25
+                  checked:
+                    bg_color: 0xEFB44C
+                  widgets:
+                    - label:
+                        id: lbl_am
+                        text: "AM"
+                        text_font: font_tile
+                        text_color: 0x9AA0A8
+                        align: CENTER
+                        checked:
+                          text_color: 0x1E1608
+                  on_click:
+                    - if:
+                        condition:
+                          lambda: |-
+                            return !id(wake_tap) && id(alarm_h) >= 12 &&
+                                   std::abs(id(touch_last_x) - id(touch_start_x)) < 24 &&
+                                   std::abs(id(touch_last_y) - id(touch_start_y)) < 24;
+                        then:
+                          - lambda: "id(alarm_h) -= 12;"
+                          - script.execute: alarm_render
+                          - script.execute: alarm_commit
+              - button:
+                  id: btn_pm
+                  width: 84
+                  height: 40
+                  radius: 18
+                  pad_all: 0
+                  shadow_width: 0
+                  bg_opa: COVER
+                  bg_color: 0x1B1F25
+                  checked:
+                    bg_color: 0xEFB44C
+                  widgets:
+                    - label:
+                        id: lbl_pm
+                        text: "PM"
+                        text_font: font_tile
+                        text_color: 0x9AA0A8
+                        align: CENTER
+                        checked:
+                          text_color: 0x1E1608
+                  on_click:
+                    - if:
+                        condition:
+                          lambda: |-
+                            return !id(wake_tap) && id(alarm_h) >= 0 && id(alarm_h) < 12 &&
+                                   std::abs(id(touch_last_x) - id(touch_start_x)) < 24 &&
+                                   std::abs(id(touch_last_y) - id(touch_start_y)) < 24;
+                        then:
+                          - lambda: "id(alarm_h) += 12;"
+                          - script.execute: alarm_render
+                          - script.execute: alarm_commit
+        # Whether button 2 has this armed — display only; arming stays
+        # with the physical button (and its spoken confirmation).
+        - label:
+            id: lbl_alarm_status
+            text: "..."
+            text_font: font_small
+            text_color: 0x808080
+            align: CENTER
+            y: 152

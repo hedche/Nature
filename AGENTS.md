@@ -27,6 +27,7 @@ Every change must be reproducible from this repo + the single secrets file.
 - Prefer declarative configs over imperative scripts.
 - Document manual steps in READMEs, not inline comments in configs.
 - Desired state lives in Git and is pushed to hosts (Terraform, Flux, deploy scripts) — never hand-configure a host and call it done.
+- Where a change produces something a person looks at rather than something a test asserts (a rendered UI, a dashboard, a printed layout), verify it in a simulator or preview before it reaches hardware — and say in the nested `AGENTS.md` what that simulator cannot see. Today this means the bedroom panel's SDL simulator (`home-assistant/AGENTS.md`).
 
 ## 4. No manual cluster changes — avoid drift
 
@@ -43,3 +44,4 @@ The nearest `AGENTS.md` to the files being edited takes precedence. Read the rel
 | `oracle/AGENTS.md` | OCI Terraform caveats (**do not `terraform apply` casually**) |
 | `proxmox/AGENTS.md` | Proxmox VM Terraform, physical disk passthrough |
 | `hermes/AGENTS.md` | Media stack (VPN boundary, Tailscale × Docker gotcha) |
+| `home-assistant/AGENTS.md` | ESPHome devices (secrets rendering, build on the Mac — never the Pi; **verify panel UI changes in the SDL simulator before flashing**), HA config packages |

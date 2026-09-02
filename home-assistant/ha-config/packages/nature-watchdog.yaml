@@ -1,9 +1,9 @@
 # Nature homelab watchdog — the LAN-side vantage point for the cereal cluster.
 #
-# SOURCE OF TRUTH: <repo>/home-assistant/packages/nature-watchdog.yaml
-# This file is NOT deployed by Flux or Ansible. Copy it to
-# /config/packages/nature-watchdog.yaml on hassio (10.30.1.60) and reload.
-# See ../README.md for the procedure and the drift caveat.
+# SOURCE OF TRUTH: <repo>/home-assistant/ha-config/packages/nature-watchdog.yaml
+# Deployed to hassio (10.30.1.60) by ../deploy.sh along with the other
+# packages — scp to /config/packages/ then `ha core check` and restart.
+# See ../../README.md for the one-time setup.
 #
 # Why this exists: cereal's Prometheus cannot report that cereal is dead. Home
 # Assistant runs on separate hardware, on the same LAN, with phone push already

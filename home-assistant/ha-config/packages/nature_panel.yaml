@@ -1,0 +1,240 @@
+# Template sensors feeding the bedroom ESPHome panel
+# (home-assistant/esphome/bedroom-panel.yaml).
+#
+# Computes today's at-a-glance weather from the Met.no hourly forecast.
+# If the Met.no weather entity ID differs, update it in BOTH the
+# trigger and the action below, and in the ESPHome substitution.
+template:
+  - triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+      - trigger: homeassistant
+        event: start
+      - trigger: state
+        entity_id: weather.forecast_home
+      # Midnight reset for the latched min/max (see below).
+      - trigger: time
+        at: "00:00:10"
+        id: midnight
+    actions:
+      - action: weather.get_forecasts
+        target:
+          entity_id: weather.forecast_home
+        data:
+          type: hourly
+        response_variable: fc
+      - variables:
+          # Day bounds as UNIX timestamps, NOT ISO strings. The forecast's
+          # datetimes carry a UTC offset ("2026-08-18T23:00:00+00:00")
+          # while today_at() renders local ("2026-08-18T00:00:00+01:00"),
+          # so the string comparison this used to do shifted the whole
+          # window by the local UTC offset: on BST it selected today
+          # 02:00 → tomorrow 01:00, dropping the first two hours of today
+          # and counting tomorrow's small hours as "today". Comparing
+          # timestamps is offset- and format-agnostic.
+          day_start: "{{ as_timestamp(today_at('00:00')) }}"
+          day_end: "{{ as_timestamp(today_at('00:00') + timedelta(days=1)) }}"
+          day_after: "{{ as_timestamp(today_at('00:00') + timedelta(days=2)) }}"
+          # Today AND tomorrow, in forecast order. The rain line looks into
+          # tomorrow once today's rain is done (see the "when" sensor); the
+          # day after that is deliberately out of scope — at that range the
+          # panel would be reporting weather nobody is dressing for yet.
+          soon_hours: >
+            {% set ns = namespace(hours=[]) %}
+            {% for h in (fc['weather.forecast_home'].forecast | default([])) %}
+              {% if h.datetime is defined
+                    and as_timestamp(h.datetime) >= day_start
+                    and as_timestamp(h.datetime) < day_after %}
+                {% set ns.hours = ns.hours + [h] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.hours }}
+          today_hours: >
+            {% set ns = namespace(hours=[]) %}
+            {% for h in soon_hours %}
+              {% if as_timestamp(h.datetime) < day_end %}
+                {% set ns.hours = ns.hours + [h] %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.hours }}
+          # Any hour with rain in it, however little. The threshold used to
+          # be `> 0.1`, which silently dropped whole drizzly days: met.no
+          # reports hourly precipitation to 1dp, so a light day is a run of
+          # hours of exactly 0.1mm and every one of them was excluded,
+          # leaving "0.0 mm" / "No rain expected". `is_number` guards the
+          # comparison against hours that carry a null precipitation.
+          wet_hours: >
+            {{ today_hours | selectattr('precipitation', 'defined')
+               | selectattr('precipitation', 'is_number')
+               | selectattr('precipitation', '>', 0) | list }}
+          # Same, but through the end of tomorrow — only the "when" line
+          # uses this. The mm total stays strictly today's.
+          wet_soon: >
+            {{ soon_hours | selectattr('precipitation', 'defined')
+               | selectattr('precipitation', 'is_number')
+               | selectattr('precipitation', '>', 0) | list }}
+          # The forecast only contains hours still to come, so by evening a
+          # plain min/max over it collapses to tonight's values and forgets
+          # the afternoon peak. Candidates = remaining forecast hours plus
+          # the current observed temperature; each sensor then LATCHES
+          # against its own previous state (this.state) and resets at
+          # midnight. Trigger-based template sensors restore state, so the
+          # latch survives HA restarts.
+          temp_candidates: >
+            {% set cur = state_attr('weather.forecast_home', 'temperature') %}
+            {{ (today_hours | map(attribute='temperature') | list)
+               + ([cur] if cur is not none else []) }}
+    sensor:
+      - name: "Panel Today Temp Min"
+        unique_id: panel_today_temp_min
+        unit_of_measurement: "°C"
+        state: >
+          {% set new = (temp_candidates | min) if temp_candidates else none %}
+          {% set prev = this.state | float(none) if trigger.id != 'midnight' else none %}
+          {% set cands = ([new] if new is not none else []) + ([prev] if prev is not none else []) %}
+          {{ (cands | min) | round(0) if cands else none }}
+      - name: "Panel Today Temp Max"
+        unique_id: panel_today_temp_max
+        unit_of_measurement: "°C"
+        state: >
+          {% set new = (temp_candidates | max) if temp_candidates else none %}
+          {% set prev = this.state | float(none) if trigger.id != 'midnight' else none %}
+          {% set cands = ([new] if new is not none else []) + ([prev] if prev is not none else []) %}
+          {{ (cands | max) | round(0) if cands else none }}
+      - name: "Panel Today Rain Total"
+        unique_id: panel_today_rain_total
+        unit_of_measurement: "mm"
+        # LATCHED, for the same reason the temperatures above are: the
+        # hourly forecast only contains hours still to come, so a plain sum
+        # decays to 0.0 as the day's rain passes and the panel ends up
+        # claiming a wet morning was dry. Latching the highest whole-day
+        # figure seen since midnight — the forecast at 00:00 covers the
+        # entire day — makes "mm rain today" mean what it says. It
+        # overstates if a forecast shower is later cancelled; that is the
+        # accepted trade for not understating rain that actually fell.
+        #
+        # 2dp, not 1: rounding to 1dp turns a genuine trace of rain into a
+        # flat 0.0 before the panel sees it. The panel renders anything
+        # under 0.05 as "<0.1 mm".
+        state: >
+          {% set new = (wet_hours | map(attribute='precipitation') | sum)
+                       if today_hours else none %}
+          {% set prev = this.state | float(none) if trigger.id != 'midnight' else none %}
+          {% set cands = ([new] if new is not none else [])
+                         + ([prev] if prev is not none else []) %}
+          {{ (cands | max) | round(2) if cands else none }}
+      # String sensor (no unit): compact "when is the next rain" line for
+      # the panel — e.g. "Next: 0.4mm 18:00–20:00", "Raining: 1.2mm to
+      # 16:00", "Tomorrow: 2.1mm 09:00–13:00", "No more rain today" or
+      # "No rain expected".
+      #
+      # wet_soon is split into RUNS of consecutive forecast steps and the
+      # line describes the run that is still to come (or in progress). It
+      # used to print first-wet-hour–last-wet-hour across the whole day,
+      # which merged a shower that had already passed with one due in the
+      # evening into a single misleading "01:00–20:00" span. The mm sensor
+      # above answers "how wet is today" (latched, whole-day); this line
+      # answers "when next", which is the other half of the question.
+      #
+      # It looks a day ahead, because the hourly forecast only contains
+      # hours still to come: after a wet morning there are no wet hours
+      # left in today, so a today-only version printed "No rain expected"
+      # directly under a latched "16.2 mm rain today". Once today has no
+      # rain left the line rolls onto tomorrow's first wet run; nothing
+      # beyond tomorrow is ever shown. When neither day is wet, the
+      # latched total decides between "No more rain today" (it already
+      # rained) and "No rain expected" (it never will).
+      - name: "Panel Today Rain When"
+        unique_id: panel_today_rain_when
+        state: >
+          {% set rained = states('sensor.panel_today_rain_total') | float(0) > 0 %}
+          {% set nothing = 'No more rain today' if rained else 'No rain expected' %}
+          {% if not today_hours %}
+            unavailable
+          {% elif not wet_soon %}
+            {{ nothing }}
+          {% else %}
+            {# Forecast granularity, rather than assuming hourly. Only used
+               as a fallback for the end of the last run: met.no thins the
+               forecast to multi-hour steps further out, so run ends are
+               taken from the next forecast entry where there is one. #}
+            {% set step = (as_timestamp(today_hours[1].datetime)
+                           - as_timestamp(today_hours[0].datetime))
+                          if today_hours | count > 1 else 3600 %}
+            {% set ns = namespace(runs=[], cur=[]) %}
+            {% for h in wet_soon %}
+              {% if ns.cur and (as_timestamp(h.datetime)
+                                - as_timestamp(ns.cur[-1].datetime)) > step %}
+                {% set ns.runs = ns.runs + [ns.cur] %}
+                {% set ns.cur = [h] %}
+              {% else %}
+                {% set ns.cur = ns.cur + [h] %}
+              {% endif %}
+            {% endfor %}
+            {% set ns.runs = ns.runs + [ns.cur] %}
+            {# First run that has not finished yet — in progress counts. #}
+            {% set sel = namespace(run=none) %}
+            {% for r in ns.runs %}
+              {% if sel.run is none
+                    and (as_timestamp(r[-1].datetime) + step) > as_timestamp(now()) %}
+                {% set sel.run = r %}
+              {% endif %}
+            {% endfor %}
+            {% if sel.run is none %}
+              {{ nothing }}
+            {% else %}
+              {% set total = sel.run | map(attribute='precipitation') | sum %}
+              {% set amount = '<0.1mm' if total < 0.05 else (total | round(1) ~ 'mm') %}
+              {% set start = as_timestamp(sel.run[0].datetime) %}
+              {% set last = as_timestamp(sel.run[-1].datetime) %}
+              {# The run's end is the start of the next forecast entry, so a
+                 6-hourly block is not reported as one hour long. #}
+              {% set en = namespace(ts=none) %}
+              {% for h in soon_hours %}
+                {% if en.ts is none and as_timestamp(h.datetime) > last %}
+                  {% set en.ts = as_timestamp(h.datetime) %}
+                {% endif %}
+              {% endfor %}
+              {% set end = (en.ts if en.ts is not none else last + step)
+                           | timestamp_custom('%H:%M') %}
+              {% if start <= as_timestamp(now()) %}
+                Raining: {{ amount }} to {{ end }}
+              {% elif start < day_end %}
+                Next: {{ amount }} {{ start | timestamp_custom('%H:%M') }}–{{ end }}
+              {% else %}
+                Tomorrow: {{ amount }} {{ start | timestamp_custom('%H:%M') }}–{{ end }}
+              {% endif %}
+            {% endif %}
+          {% endif %}
+
+  # Media metadata for the panel with fallbacks: streams and local files
+  # (e.g. the pink-noise MP3s) often have no media_title/media_artist, which
+  # left the panel saying "Nothing playing" mid-playback. State-based (not
+  # trigger-based) so they update the instant the player changes.
+  - sensor:
+      - name: "Panel Media Title"
+        unique_id: panel_media_title
+        state: >
+          {% set p = 'media_player.bedroom_sonos' %}
+          {% if states(p) in ['playing', 'paused', 'buffering'] %}
+            {{ state_attr(p, 'media_title') or state_attr(p, 'media_channel')
+               or ((state_attr(p, 'media_content_id') or 'Playing')
+                   | regex_replace('^.*/', '') | regex_replace('\\.[A-Za-z0-9]{2,4}$', '')
+                   | replace('%20', ' ') | truncate(60, true)) }}
+          {% else %}
+            Nothing playing
+          {% endif %}
+      - name: "Panel Media Artist"
+        unique_id: panel_media_artist
+        state: >
+          {% set p = 'media_player.bedroom_sonos' %}
+          {{ (state_attr(p, 'media_artist') or state_attr(p, 'media_album_name') or ' ')
+             if states(p) in ['playing', 'paused', 'buffering'] else ' ' }}
+      # Absolute URL of the artwork via HA's signed image proxy; empty when
+      # the current item has none. The panel downloads and renders it.
+      - name: "Panel Media Art"
+        unique_id: panel_media_art
+        state: >
+          {% set p = 'media_player.bedroom_sonos' %}
+          {% set pic = state_attr(p, 'entity_picture') %}
+          {{ 'http://10.30.1.60:8123' ~ pic if pic else '' }}

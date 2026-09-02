@@ -1,0 +1,286 @@
+# Bedroom panel — desktop simulator.
+#
+# Runs the REAL UI (packages/panel-ui.yaml — same widgets, same fonts, same
+# LVGL) as a native macOS binary drawing into an SDL window, so a layout or
+# logic change can be seen before it goes anywhere near the wall. Compiling
+# this takes ~40s against ~4min + an OTA for the actual panel.
+#
+#   ./sim.sh              compile + open the window (Ctrl-C to quit)
+#   ./sim.sh shot out.png compile, capture one frame, exit
+#
+# `shot` works by asking the simulator to dump its own SDL backbuffer (see
+# sim_shot below) rather than screenshotting the desktop — headless, with
+# no Screen Recording permission and no window to capture wrongly.
+#
+# Mock values below stand in for the Home Assistant sensors. Override any of
+# them per run without editing this file:
+#
+#   ./sim.sh shot rain.png   -s sim_weather pouring -s sim_rain_mm 12.4
+#   ./sim.sh shot drawer.png -s sim_drawer true
+#   ./sim.sh shot alarm.png  -s sim_page alarm_page -s sim_alarm_time "06:45:00"
+#   ./sim.sh shot lights.png -s sim_page lights_page -s sim_light_2 on
+#   ./sim.sh shot press.png  -s sim_page lights_page -s sim_pressed true
+#   ./sim.sh shot dead.png   -s sim_temp_min NAN     # what a dead HA sensor looks like
+#
+# Passing a real (reachable) URL as sim_media_art is the only way to exercise
+# the album-art download and its JPEG->PNG fallback here; with the default
+# empty string that path never runs.
+#
+# WHAT THIS CANNOT TELL YOU: there is no backlight here (the ledc output is a
+# logging stub), no RGB panel timing, no PSRAM pressure and no real digitiser.
+# Brightness, tearing and boot behaviour still have to be checked on the panel.
+
+substitutions:
+  name: bedroom-panel-sim
+  # Only needed because the LVGL media buttons name it in their HA actions.
+  sonos_entity: media_player.bedroom_sonos
+  # Lights page tiles — same shape as the real panel's substitutions. The
+  # entities are only named in HA actions that never fire here; the names
+  # and icons are what gets rendered, so keep them realistic.
+  light_1_entity: switch.smarthutplug_dbeb24_plug
+  light_1_name: "Lydia's Light"
+  light_1_icon: "\U000F06B5" # lamp
+  light_2_entity: switch.smarthutplug_ded8f4_plug
+  light_2_name: "Stair Light"
+  light_2_icon: "\U000F04CD" # stairs
+  light_3_entity: switch.kitchen_lamp
+  light_3_name: "Kitchen Lamp"
+  light_3_icon: "\U000F08DD" # floor-lamp
+  light_4_entity: switch.living_room_bookshelf_lamp
+  light_4_name: "Bookshelf Lamp"
+  light_4_icon: "\U000F125F" # bookshelf
+  # Alarm drawer: only named in the commit action, which never fires here.
+  alarm_time_entity: input_datetime.bedroom_alarm_time
+
+  # ---- Mock data ----
+  # Numeric values are pasted straight into C++, so `-s sim_temp_min NAN`
+  # reproduces what the panel shows while a HA sensor is unavailable — which
+  # is what it does after every Home Assistant restart.
+  sim_page: weather_page
+  # The settings drawer is on the LVGL top layer, not a page, so it needs its
+  # own switch: -s sim_drawer true
+  sim_drawer: "false"
+  # Forces the first light tile and the All-off bar into LVGL's pressed
+  # state, which no `shot` could otherwise photograph: -s sim_pressed true
+  sim_pressed: "false"
+  # Non-empty = write one frame to this BMP path shortly after boot and exit.
+  # sim.sh sets it for `shot`; leave empty to keep the window open.
+  sim_shot: ""
+  sim_temp_min: "12"
+  sim_temp_max: "23"
+  sim_rain_mm: "3.2"
+  sim_rain_when: "Next: 0.4mm 18:00–20:00"
+  sim_weather: "rainy"
+  sim_media_title: "Blue Monday"
+  sim_media_artist: "New Order"
+  sim_media_state: "playing"
+  # Empty = no artwork, which is what the panel sees for most radio streams.
+  sim_media_art: ""
+  sim_volume: "0.35"
+  sim_wifi_rssi: "-58"
+  sim_wifi_ip: "10.30.1.124"
+  # Lights page: "on", "off" or "unavailable" — the latter is what a dead
+  # Zigbee plug or a restarting HA looks like. Use -s sim_page lights_page.
+  sim_light_1: "on"
+  sim_light_2: "off"
+  sim_light_3: "on"
+  sim_light_4: "unavailable"
+  # Alarm. The time is the raw "HH:MM:SS" (24h) HA string — pass
+  # "unavailable" for the --:-- state; armed is on/off/unavailable. Both
+  # feed the weather-page chip and the editor, which is a real page:
+  # -s sim_page alarm_page
+  sim_alarm_time: "07:30:00"
+  sim_alarm_armed: "on"
+
+esphome:
+  name: ${name}
+  friendly_name: Bedroom Panel (sim)
+  # Backbuffer-to-BMP helper for `shot` (see the on_boot tail).
+  includes:
+    - sim_shot.h
+  on_boot:
+    # Late, so LVGL has built the widget tree before we push values at it.
+    - priority: -100
+      then:
+        - lvgl.page.show: ${sim_page}
+        # The drawer lives on the LVGL top layer, so showing it is a script
+        # call rather than a page change. Without this it could only be
+        # reached by dragging a real mouse, which defeats `shot`.
+        - if:
+            condition:
+              lambda: "return ${sim_drawer};"
+            then:
+              - script.execute: open_settings
+        - if:
+            condition:
+              lambda: "return ${sim_pressed};"
+            then:
+              - lvgl.widget.update:
+                  id: [tile_1, tile_all_off]
+                  state:
+                    pressed: true
+        - script.execute:
+            id: ui_temp_min
+            x: ${sim_temp_min}
+        - script.execute:
+            id: ui_temp_max
+            x: ${sim_temp_max}
+        - script.execute:
+            id: ui_rain_mm
+            x: ${sim_rain_mm}
+        - script.execute:
+            id: ui_rain_when
+            x: "${sim_rain_when}"
+        - script.execute:
+            id: ui_weather
+            x: "${sim_weather}"
+        - script.execute:
+            id: ui_media_title
+            x: "${sim_media_title}"
+        - script.execute:
+            id: ui_media_artist
+            x: "${sim_media_artist}"
+        - script.execute:
+            id: ui_media_state
+            x: "${sim_media_state}"
+        - script.execute:
+            id: ui_media_art
+            x: "${sim_media_art}"
+        - script.execute:
+            id: ui_volume
+            x: ${sim_volume}
+        - script.execute:
+            id: ui_net_rssi
+            x: ${sim_wifi_rssi}
+        - script.execute:
+            id: ui_net_ip
+            x: "${sim_wifi_ip}"
+        - script.execute:
+            id: ui_light
+            n: 1
+            x: "${sim_light_1}"
+        - script.execute:
+            id: ui_light
+            n: 2
+            x: "${sim_light_2}"
+        - script.execute:
+            id: ui_light
+            n: 3
+            x: "${sim_light_3}"
+        - script.execute:
+            id: ui_light
+            n: 4
+            x: "${sim_light_4}"
+        - script.execute:
+            id: ui_alarm_time
+            x: "${sim_alarm_time}"
+        - script.execute:
+            id: ui_alarm_armed
+            x: "${sim_alarm_armed}"
+        # `-s sim_page alarm_page` shows the editor without going through
+        # open_alarm, so set its global by hand — otherwise a swipe down in
+        # the interactive window would not close it.
+        - if:
+            condition:
+              lambda: 'return std::string("${sim_page}") == "alarm_page";'
+            then:
+              - globals.set:
+                  id: alarm_open
+                  value: "true"
+        # Let LVGL finish laying out and painting the values pushed above,
+        # then photograph the frame from inside the process and exit.
+        - if:
+            condition:
+              lambda: 'return std::string("${sim_shot}").length() > 0;'
+            then:
+              - delay: 2s
+              - lambda: |-
+                  // sim_shot.h reads the sdl component's software backbuffer,
+                  // i.e. the last presented frame. The desktop is never involved.
+                  if (sim_shot::save_frame(id(lcd), "${sim_shot}")) {
+                    ESP_LOGI("sim", "shot written to %s", "${sim_shot}");
+                    exit(0);
+                  }
+                  ESP_LOGE("sim", "shot FAILED: %s", SDL_GetError());
+                  exit(3);
+
+host:
+
+logger:
+  level: INFO
+
+# Only here so the media buttons' homeassistant.action calls compile. Nothing
+# is connected, so pressing them logs an error and does nothing.
+api:
+
+packages:
+  ui: !include packages/panel-ui.yaml
+
+# ---------- Simulated hardware ----------
+# IDs must match the real panel's (lcd, panel_touch, backlight, panel_restart)
+# because the UI package addresses them by name.
+
+display:
+  - platform: sdl
+    id: lcd
+    auto_clear_enabled: false
+    update_interval: never
+    dimensions:
+      width: 480
+      height: 480
+    # Fixed, undecorated and on top so the window lands somewhere predictable
+    # when you open it interactively. `shot` reads the framebuffer directly
+    # and does not care where the window is.
+    window_options:
+      borderless: true
+      always_on_top: true
+      position:
+        x: 60
+        y: 120
+
+touchscreen:
+  - platform: sdl
+    id: panel_touch
+    display: lcd
+    on_touch:
+      - script.execute:
+          id: touch_begin
+          x: !lambda "return touch.x;"
+          y: !lambda "return touch.y;"
+    on_update:
+      - lambda: |-
+          for (auto t : touches) {
+            id(touch_move)->execute(t.x, t.y);
+          }
+    on_release:
+      - script.execute: touch_end
+
+# Stand-in for the ledc backlight. The window's actual brightness never
+# changes — this only logs, so the screen stays readable while the UI thinks
+# it is dimming. Do NOT judge brightness levels here.
+output:
+  - platform: template
+    id: backlight_pwm
+    type: float
+    write_action:
+      - logger.log:
+          format: "[sim] backlight -> %.0f%%"
+          args: ["state * 100.0f"]
+          level: INFO
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    default_transition_length: 250ms
+
+button:
+  - platform: template
+    id: panel_restart
+    name: Restart
+    on_press:
+      - logger.log:
+          format: "[sim] restart pressed (no-op)"
+          level: INFO

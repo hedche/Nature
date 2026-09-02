@@ -1,0 +1,348 @@
+# Guition ESP32-S3-4848S040 — 4" 480x480 IPS touch panel (86-box form factor)
+# Bedroom wall panel: weather, Sonos media and lights pages, swipe to switch.
+# Build/flash with ./run.sh (see README.md). Reference config:
+# https://devices.esphome.io/devices/guition-esp32-s3-4848s040/
+
+substitutions:
+  name: bedroom-panel
+  friendly_name: Bedroom Panel
+  # Confirm these entity IDs in HA before flashing.
+  sonos_entity: media_player.bedroom_sonos
+  weather_entity: weather.forecast_home
+  # Lights page: four tiles, top-left to bottom-right. All are on/off
+  # switches (smart plugs), so the tiles toggle via homeassistant.toggle and
+  # follow the state HA reports back. Names are what the tile prints; the
+  # icons are MDI glyphs from the package's mdi_42 font, so a new icon has
+  # to be added to that glyph list too.
+  light_1_entity: switch.smarthutplug_dbeb24_plug
+  light_1_name: "Lydia's Light"
+  light_1_icon: "\U000F06B5" # lamp
+  light_2_entity: switch.smarthutplug_ded8f4_plug
+  light_2_name: "Stair Light"
+  light_2_icon: "\U000F04CD" # stairs
+  light_3_entity: switch.kitchen_lamp
+  light_3_name: "Kitchen Lamp"
+  light_3_icon: "\U000F08DD" # floor-lamp
+  light_4_entity: switch.living_room_bookshelf_lamp
+  light_4_name: "Bookshelf Lamp"
+  light_4_icon: "\U000F125F" # bookshelf
+  # Alarm drawer (swipe up from the bottom edge): the wake-up time and arm
+  # flag from ha-config/packages/bedroom_alarm.yaml. The drawer edits the
+  # time via input_datetime.set_datetime; arming stays with button 2 on the
+  # TS0044 remote.
+  alarm_time_entity: input_datetime.bedroom_alarm_time
+  alarm_armed_entity: input_boolean.bedroom_alarm
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  # Some 4848S040 batches boot-loop at QIO; DIO is the safe default.
+  platformio_options:
+    board_build.flash_mode: dio
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      # Run code/rodata from PSRAM-backed cache — reduces RGB-panel tearing.
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  # The homeassistant text sensors keep their last value when HA goes away,
+  # so without this a HA restart leaves the lights page confidently showing
+  # stale states. HA re-sends every subscribed state on reconnect. Only HA
+  # counts: the esphome CLI (`./run.sh logs`) is an API client too, and its
+  # disconnect must not blank the tiles — HA would not resend anything
+  # until a light actually changed.
+  on_client_disconnected:
+    - if:
+        condition:
+          lambda: 'return client_info.rfind("Home Assistant", 0) == 0;'
+        then:
+          - script.execute: { id: ui_light, n: 1, x: "unavailable" }
+          - script.execute: { id: ui_light, n: 2, x: "unavailable" }
+          - script.execute: { id: ui_light, n: 3, x: "unavailable" }
+          - script.execute: { id: ui_light, n: 4, x: "unavailable" }
+          - script.execute: { id: ui_alarm_time, x: "unavailable" }
+          - script.execute: { id: ui_alarm_armed, x: "unavailable" }
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# DEBUG logging visibly glitches the RGB panel — keep at INFO.
+logger:
+  level: INFO
+
+time:
+  - platform: homeassistant
+    id: ha_time
+
+# Everything on the screen lives in the shared UI package, which the SDL
+# simulator (bedroom-panel-sim.yaml) includes too. This file is the hardware
+# and the live data feeding it — see packages/panel-ui.yaml for the contract.
+packages:
+  ui: !include packages/panel-ui.yaml
+
+# ---------- Display / touch hardware ----------
+
+spi:
+  - id: lcd_spi
+    clk_pin: 48
+    mosi_pin: 47
+
+display:
+  - platform: st7701s
+    id: lcd
+    spi_mode: MODE3
+    data_rate: 2MHz
+    dimensions:
+      width: 480
+      height: 480
+    cs_pin: 39
+    de_pin: 18
+    hsync_pin: 16
+    vsync_pin: 17
+    pclk_pin: 21
+    pclk_frequency: 12MHz
+    pclk_inverted: false
+    hsync_pulse_width: 8
+    hsync_front_porch: 10
+    hsync_back_porch: 50
+    vsync_pulse_width: 8
+    vsync_front_porch: 10
+    vsync_back_porch: 20
+    init_sequence:
+      - 1 # built-in defaults
+      # CMD2 BK0 select, then disable the MDT flag — without this the
+      # panel's colours are wrong.
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x10]
+      - [0xCD, 0x00]
+    data_pins:
+      red: [11, 12, 13, 14, 0]
+      green: [8, 20, 3, 46, 9, 10]
+      blue: [4, 5, 6, 7, 15]
+    auto_clear_enabled: false
+
+i2c:
+  - sda: 19
+    scl:
+      number: 45
+      ignore_strapping_warning: true
+
+# Gesture logic lives in the UI package so the simulator behaves identically.
+touchscreen:
+  - platform: gt911
+    id: panel_touch
+    on_touch:
+      - script.execute:
+          id: touch_begin
+          x: !lambda "return touch.x;"
+          y: !lambda "return touch.y;"
+    on_update:
+      - lambda: |-
+          for (auto t : touches) {
+            id(touch_move)->execute(t.x, t.y);
+          }
+    on_release:
+      - script.execute: touch_end
+
+# ---------- Backlight / relays ----------
+
+output:
+  - platform: ledc
+    pin: 38
+    id: backlight_pwm
+    frequency: 150Hz
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    default_transition_length: 250ms
+
+button:
+  - platform: restart
+    id: panel_restart
+    name: Restart
+
+# 86-box mains relays — unused for now, exposed to HA anyway.
+switch:
+  - platform: gpio
+    pin: 40
+    id: relay_1
+    name: Relay 1
+    restore_mode: RESTORE_DEFAULT_OFF
+  - platform: gpio
+    pin: 2
+    id: relay_2
+    name: Relay 2
+    restore_mode: RESTORE_DEFAULT_OFF
+  - platform: gpio
+    pin: 1
+    id: relay_3
+    name: Relay 3
+    restore_mode: RESTORE_DEFAULT_OFF
+
+# ---------- Live data from Home Assistant ----------
+# Thin adapters: every one of these just forwards its value to the matching
+# ui_* script in packages/panel-ui.yaml, which owns all the formatting. The
+# simulator swaps this section for mock values and gets an identical screen.
+
+sensor:
+  - platform: wifi_signal
+    id: wifi_rssi
+    update_interval: 60s
+    on_value:
+      - script.execute:
+          id: ui_net_rssi
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: temp_min
+    entity_id: sensor.panel_today_temp_min
+    on_value:
+      - script.execute:
+          id: ui_temp_min
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: temp_max
+    entity_id: sensor.panel_today_temp_max
+    on_value:
+      - script.execute:
+          id: ui_temp_max
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: rain_mm
+    entity_id: sensor.panel_today_rain_total
+    on_value:
+      - script.execute:
+          id: ui_rain_mm
+          x: !lambda "return x;"
+  # 0..1 from HA; ui_volume scales it to the 0..100 slider.
+  - platform: homeassistant
+    id: sonos_volume
+    entity_id: ${sonos_entity}
+    attribute: volume_level
+    on_value:
+      - script.execute:
+          id: ui_volume
+          x: !lambda "return x;"
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      id: wifi_ip
+      on_value:
+        - script.execute:
+            id: ui_net_ip
+            x: !lambda "return x;"
+  - platform: homeassistant
+    id: rain_when
+    entity_id: sensor.panel_today_rain_when
+    on_value:
+      - script.execute:
+          id: ui_rain_when
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: weather_cond
+    entity_id: ${weather_entity}
+    on_value:
+      - script.execute:
+          id: ui_weather
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: media_title
+    entity_id: sensor.panel_media_title
+    on_value:
+      - script.execute:
+          id: ui_media_title
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: media_artist
+    entity_id: sensor.panel_media_artist
+    on_value:
+      - script.execute:
+          id: ui_media_artist
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: media_art_url
+    entity_id: sensor.panel_media_art
+    on_value:
+      - script.execute:
+          id: ui_media_art
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: media_state
+    entity_id: ${sonos_entity}
+    on_value:
+      - script.execute:
+          id: ui_media_state
+          x: !lambda "return x;"
+  # Lights page. The raw state string goes through so the tile can tell
+  # "unavailable" (HA restarting, Zigbee device gone) from plain off.
+  - platform: homeassistant
+    id: light_1_state
+    entity_id: ${light_1_entity}
+    on_value:
+      - script.execute:
+          id: ui_light
+          n: 1
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: light_2_state
+    entity_id: ${light_2_entity}
+    on_value:
+      - script.execute:
+          id: ui_light
+          n: 2
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: light_3_state
+    entity_id: ${light_3_entity}
+    on_value:
+      - script.execute:
+          id: ui_light
+          n: 3
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: light_4_state
+    entity_id: ${light_4_entity}
+    on_value:
+      - script.execute:
+          id: ui_light
+          n: 4
+          x: !lambda "return x;"
+  # Alarm drawer: the raw "HH:MM:SS" time string and the arm flag go
+  # through as-is so "unavailable" can render honestly, like the tiles.
+  - platform: homeassistant
+    id: alarm_time
+    entity_id: ${alarm_time_entity}
+    on_value:
+      - script.execute:
+          id: ui_alarm_time
+          x: !lambda "return x;"
+  - platform: homeassistant
+    id: alarm_armed
+    entity_id: ${alarm_armed_entity}
+    on_value:
+      - script.execute:
+          id: ui_alarm_armed
+          x: !lambda "return x;"

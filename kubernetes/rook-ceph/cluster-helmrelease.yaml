@@ -31,6 +31,12 @@ spec:
     clusterName: rook-ceph
     toolbox:
       enabled: true
+      resources:
+        limits:
+          memory: 256Mi
+        requests:
+          cpu: 50m
+          memory: 64Mi
     cephImage:
       repository: quay.io/ceph/ceph
       tag: v19.2.3
@@ -48,10 +54,75 @@ spec:
         ssl: true
       crashCollector:
         disable: false
+      # Every Ceph daemon otherwise gets a log-collector sidecar (100m + 100Mi
+      # each, 11 in total) writing logs to files under dataDirHostPath. Daemon
+      # logs stay available via `kubectl logs`.
       logCollector:
-        enabled: true
-        periodicity: daily
-        maxLogSize: 500M
+        enabled: false
+
+      # BlueStore cache sizing. osd_memory_base is 768Mi and osd_memory_cache_min
+      # is 128Mi, so a 1Gi target left the autotuner pinned at its cache floor
+      # (measured: bluestore-pricache cache_bytes == osd_memory_cache_min exactly)
+      # with no adaptive range. 2Gi leaves ~1.2Gi for cache. The osd memory limit
+      # below is held at 2x this target so a recovery burst cannot trip an OOM.
+      cephConfig:
+        osd:
+          osd_memory_target: "2147483648"   # 2 GiB
+
+      # Chart defaults are sized for a production cluster (osd 1 CPU + 4Gi, mon
+      # 1 CPU + 1Gi, mgr 500m each) and accounted for ~59% of this cluster's
+      # allocatable CPU in requests while actually using ~360m total. Requests
+      # are trimmed towards real usage; memory limits stay generous so no daemon
+      # becomes more likely to be OOM-killed.
+      resources:
+        mon:
+          limits:
+            memory: 2Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+        osd:
+          limits:
+            memory: 4Gi
+          requests:
+            cpu: 250m
+            memory: 2Gi
+        # Measured steady-state mgr RSS is ~580Mi, above the old 512Mi request.
+        mgr:
+          limits:
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 640Mi
+        mgr-sidecar:
+          limits:
+            memory: 100Mi
+          requests:
+            cpu: 10m
+            memory: 40Mi
+        crashcollector:
+          limits:
+            memory: 60Mi
+          requests:
+            cpu: 10m
+            memory: 60Mi
+        exporter:
+          limits:
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 50Mi
+        prepareosd:
+          requests:
+            cpu: 100m
+            memory: 50Mi
+        cleanup:
+          limits:
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+
       placement:
         all:
           nodeAffinity:
@@ -120,4 +191,51 @@ spec:
             csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
             csi.storage.k8s.io/fstype: ext4
     cephFileSystems: []
-    cephObjectStores: []
+    # S3-compatible object storage (RADOS Gateway). Pools are replicated x3
+    # rather than the chart's default erasure-coded 2+1: with only three hosts
+    # and failureDomain host, EC 2+1 gets min_size k+1 = 3, so losing one node
+    # to a reboot would block all object I/O. Replication keeps min_size 2.
+    #
+    # pg_num_min caps the autoscaler's per-pool floor (default 32). An object
+    # store creates seven pools at once; at the default that is ~192 extra PGs
+    # per OSD against a mon_max_pg_per_osd ceiling of 250.
+    cephObjectStores:
+      - name: ceph-objectstore
+        spec:
+          metadataPool:
+            failureDomain: host
+            replicated:
+              size: 3
+            parameters:
+              min_size: "2"
+              pg_num_min: "8"
+          dataPool:
+            failureDomain: host
+            replicated:
+              size: 3
+            parameters:
+              min_size: "2"
+              pg_num_min: "8"
+          preservePoolsOnDelete: true
+          gateway:
+            port: 80
+            # Two gateways so a node reboot does not take the endpoint down.
+            # Sized to match the trimmed mon/mgr requests above; RGW is idle
+            # most of the time and can burst to the limit when it is not.
+            instances: 2
+            priorityClassName: system-cluster-critical
+            resources:
+              limits:
+                memory: 2Gi
+              requests:
+                cpu: 100m
+                memory: 512Mi
+        storageClass:
+          enabled: true
+          name: ceph-bucket
+          # Retain, not the chart's Delete: removing an ObjectBucketClaim must
+          # not silently destroy the bucket contents behind it.
+          reclaimPolicy: Retain
+          volumeBindingMode: Immediate
+          parameters:
+            region: us-east-1
