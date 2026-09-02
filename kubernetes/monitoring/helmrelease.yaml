@@ -332,6 +332,12 @@ spec:
         KubeCPUOvercommit: true
         KubeMemoryOvercommit: true
         CPUThrottlingHigh: true
+        # Upstream ships its own always-firing Watchdog with the same alertname as
+        # ours but no `channel: heartbeat` label, so it fell through to the default
+        # telegram receiver and would post "Watchdog" every 6h forever. Ours in
+        # ../monitoring-rules/rules/nature-cluster.yaml supersedes it and routes to
+        # the Home Assistant webhook instead. Observed on the first deploy.
+        Watchdog: true
 
     # kube-proxy is disabled cluster-wide (Cilium eBPF); scraping it fails forever.
     kubeProxy:
