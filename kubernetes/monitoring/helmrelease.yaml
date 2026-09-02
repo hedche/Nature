@@ -267,13 +267,42 @@ spec:
               - url: http://10.30.1.60:8123/api/webhook/nature-cluster-heartbeat
                 send_resolved: false
         inhibit_rules:
-          # A dead node produces a warning per pod on it. Page once, not thirty times.
+          # A dead node takes its pods, replicas, daemonsets and scrape targets with
+          # it. On 2026-09-02 crackle lost power and produced 36 Telegram messages
+          # from that one cause — 19 of them KubePodNotReady alone.
+          #
+          # The previous rule matched on `equal: [node]` and therefore never fired:
+          # KubePodNotReady, KubeDeploymentReplicasMismatch and the rest come from
+          # kube-state-metrics carrying namespace/pod/deployment and NO node label,
+          # so there was nothing to equate. With four nodes, "a node is down"
+          # explains cluster-wide workload churn, so this inhibits globally rather
+          # than per-node — deliberately, and by explicit alertname.
+          - source_matchers:
+              - alertname=~"NodeNotReady|KubeNodeNotReady|KubeNodeUnreachable"
+            target_matchers:
+              - alertname=~"KubePodNotReady|KubeContainerWaiting|KubePodCrashLooping|PodCrashLooping|KubeDeploymentReplicasMismatch|KubeStatefulSetReplicasMismatch|KubeDaemonSetRolloutStuck|KubeDaemonSetMisScheduled|KubePdbNotEnoughHealthyPods|TargetDown|NodeExporterDown|NodeProblemDetectorDown|KubeletInstanceUnreachable|KubeletDown|KubeStateMetricsSeriesMissing|NodeExporterSeriesMissing|KernelMonitorSeriesMissing"
+          # Upstream's KubeNodeNotReady says the same thing as our NodeNotReady at a
+          # lower severity. Keep ours, silence the echo.
           - source_matchers: [alertname = "NodeNotReady"]
-            target_matchers: [severity = "warning"]
+            target_matchers:
+              - alertname=~"KubeNodeNotReady|KubeNodeUnreachable|KubeletInstanceUnreachable"
             equal: [node]
           # Battery death is the cause; everything downstream is noise.
           - source_matchers: [alertname = "CerealOnBattery"]
             target_matchers: [severity = "warning"]
+          # Ceph is deliberately NOT inhibited. CephOSDDown and CephMonQuorumAtRisk
+          # follow from a node outage, but they are the alerts that say whether the
+          # data is still safe — losing a second OSD blocks writes. Those must stay
+          # visible even while the obvious cause is already known.
+          - source_matchers: [alertname = "CephHealthError"]
+            target_matchers: [alertname = "CephHealthWarning"]
+          # If the gateway is gone, every probed host looks unreachable. Say it once.
+          - source_matchers: [alertname = "GatewayUnreachable"]
+            target_matchers:
+              - alertname=~"LanHostUnreachable|ProxmoxHostUnreachable|HomeAssistantUnreachable|PowerlineLinkDegraded|WanDown"
+          # A host being down explains its own LanHostUnreachable twin.
+          - source_matchers: [alertname = "ProxmoxHostUnreachable"]
+            target_matchers: [alertname = "LanHostUnreachable"]
 
     # --------------------------------------------------------------- Exporters
     kube-state-metrics:

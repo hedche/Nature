@@ -47,6 +47,27 @@ a discharged battery reads as an ordinary total outage. Worth a Prometheus alert
 | **Install Disk** | Micron 2200S NVMe 256 GB — `/dev/nvme0n1`, wwid `eui.000000000000000100a0752025d26ea0` |
 | **Storage Disk** | KIOXIA EXCERIA S SATA 960 GB — `/dev/sda`, wwid `naa.58ce38e801936b06` |
 
+**Known issue — does not power on again after an AC loss.** On 2026-09-02 a power
+event took out crackle and `pve` (10.30.1.55) together; power returned, and neither
+came back on its own, while snap, pop, qnap, hassio and the gateway all did. cereal
+rode it out on mains — its `ACAD/online` never dropped from 1 and its battery stayed
+at 100% through the whole window, so whatever tripped did not reach its socket.
+
+Both machines needed a physical power button press. The fix is a BIOS setting —
+on the OptiPlex 7060 it is *Power Management → AC Recovery → Power On* (Dell), and
+the equivalent "Restore on AC Power Loss" on the `pve` host. Until that is set, every
+power blip is a manual trip to the machines.
+
+Distinguishing this from the NVMe DMA-fault wedge (`docs/nvme-dma-fault-monitoring.md`)
+is easy and worth doing before you walk over there:
+
+| | DMA-fault wedge | Power loss |
+|---|---|---|
+| ICMP | still answers | dead, ARP incomplete |
+| Talos apid | still answers | dead |
+| Kernel log before it went | `DMAR:` fault storm | nothing — all NPD conditions `False` |
+| Remote reboot | accepted, silently ignored | nothing to accept |
+
 ---
 
 ### snap — Worker (10.30.1.51)

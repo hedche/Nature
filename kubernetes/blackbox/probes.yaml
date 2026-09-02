@@ -22,6 +22,11 @@ spec:
         - 10.30.1.57 # hermes — NFS server for the media stack
         - 10.30.1.60 # hassio — the LAN watchdog itself
         - 10.30.1.20 # qnap
+        # Added 2026-09-02. pve is not a cluster node, so nothing watched it — when
+        # it lost power alongside crackle, the only signal was hermes (a VM ON pve)
+        # going quiet, and the cause had to be inferred. The media stack depends on
+        # hermes, which depends on this host.
+        - 10.30.1.55 # pve — Proxmox host, runs the hermes VM
         # VERIFIED DOWN 2026-08-31: no ARP response on en0 while qnap on the
         # same segment answers in ~4ms. Either arctic is powered off or the
         # garage powerline link is dead. Resolve this BEFORE deploying blackbox,
