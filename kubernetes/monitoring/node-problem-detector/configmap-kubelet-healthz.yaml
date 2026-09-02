@@ -46,6 +46,15 @@ data:
   # cost more than it is worth.
   #
   # Exit 0 = OK, exit 1 = problem (NPD's custom plugin contract).
+  #
+  # EVERY shell variable below is written $${VAR}, not ${VAR}. This file is
+  # rendered through Flux's postBuild substitution (kubernetes/flux/monitoring.yaml
+  # substitutes from the nature-vars Secret), and envsubst replaces ANY braced
+  # ${VAR} it does not recognise with an EMPTY STRING. Unescaped, the probe became
+  #     exec 3<>/dev/tcp//
+  # which fails instantly, so NPD set KubeletHealthzUnresponsive=True on all four
+  # nodes while the kubelet was perfectly healthy. $${VAR} renders as a literal
+  # ${VAR}; bare $VAR would also survive, but the braces keep this readable.
   kubelet-healthz.sh: |
     #!/bin/bash
     set -o pipefail
@@ -55,7 +64,7 @@ data:
 
     response=$(
       timeout 8 bash -c '
-        exec 3<>/dev/tcp/'"${HOST}"'/'"${PORT}"' || exit 1
+        exec 3<>/dev/tcp/'"$${HOST}"'/'"$${PORT}"' || exit 1
         printf "GET /healthz HTTP/1.0\r\nHost: localhost\r\n\r\n" >&3
         cat <&3
       ' 2>/dev/null
@@ -63,11 +72,11 @@ data:
     rc=$?
 
     if [[ $rc -ne 0 ]]; then
-      echo "kubelet healthz did not answer on ${HOST}:${PORT} (rc=${rc})"
+      echo "kubelet healthz did not answer on $${HOST}:$${PORT} (rc=$${rc})"
       exit 1
     fi
 
-    if ! grep -q '^ok' <<<"${response}"; then
+    if ! grep -q '^ok' <<<"$${response}"; then
       echo "kubelet healthz answered but not with ok"
       exit 1
     fi
