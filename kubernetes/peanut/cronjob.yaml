@@ -14,6 +14,16 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 2
+      # Garbage-collect finished Jobs after 3 days.
+      #
+      # Without this, failedJobsHistoryLimit retains exactly 3 failed Jobs, and
+      # once three failures accumulate they are never evicted — no new failure
+      # arrives to push them out. Upstream's KubeJobFailed alert has no time
+      # bound, so it fires on any surviving failed Job: three briefings that
+      # failed on 2026-08-29/30/31 and then succeeded were still paging on
+      # 09-02, long after the problem had gone away. Three days is enough to
+      # investigate a failure and short enough that a fixed one stops shouting.
+      ttlSecondsAfterFinished: 259200
       template:
         metadata:
           labels:
