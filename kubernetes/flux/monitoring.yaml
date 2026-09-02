@@ -7,6 +7,11 @@ spec:
   interval: 10m
   path: ./kubernetes/monitoring
   prune: true
+  # Ready must mean "the HelmRelease reconciled and the Prometheus Operator CRDs
+  # exist", not merely "the manifests were applied" — monitoring-rules and
+  # blackbox both dependOn this and apply custom resources against those CRDs.
+  wait: true
+  timeout: 10m
   sourceRef:
     kind: GitRepository
     name: flux-system

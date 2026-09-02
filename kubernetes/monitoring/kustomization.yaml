@@ -1,11 +1,12 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+# Everything here applies with only built-in kinds plus the Flux/Helm CRDs.
+# Resources needing the Prometheus Operator CRDs live in ../monitoring-rules/,
+# which dependsOn this — see that README for why.
 resources:
   - namespace.yaml
   - helmrepository.yaml
   - helmrelease.yaml
-  - servicemonitor-ceph.yaml
   - ingress-prometheus.yaml
   - ingress-alertmanager.yaml
   - node-problem-detector
-  - rules
