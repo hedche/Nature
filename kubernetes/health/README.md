@@ -1,6 +1,6 @@
 # Public health endpoint
 
-`https://health.cereal.nature.leafbit.uk/healthz` → `ok`
+`https://cereal-health.leafbit.uk/healthz` → `ok`
 
 The **only** deliberately public thing this cluster serves. It exists so Grafana Cloud
 Synthetics can check the cluster from outside — a genuine outside-in signal that the
@@ -26,7 +26,7 @@ other services. Everything else in this cluster is tailnet-only for a reason.
 In the Grafana Cloud stack → **Testing & synthetics → Checks → Add**:
 
 - Type: HTTP
-- Target: `https://health.cereal.nature.leafbit.uk/healthz`
+- Target: `https://cereal-health.leafbit.uk/healthz`
 - Frequency: 60s, from 2–3 probe locations
 - Expect: status 200
 
@@ -41,8 +41,8 @@ export KUBECONFIG=talos/kubeconfig
 kubectl -n health get pods -o wide
 kubectl -n health get ingress health
 
-curl -sS https://health.cereal.nature.leafbit.uk/healthz   # -> ok
-curl -sS -o /dev/null -w '%{http_code}\n' https://health.cereal.nature.leafbit.uk/   # -> 404
+curl -sS https://cereal-health.leafbit.uk/healthz   # -> ok
+curl -sS -o /dev/null -w '%{http_code}\n' https://cereal-health.leafbit.uk/   # -> 404
 ```
 
 DNS takes a minute or two to appear after the Ingress is first created. If it never does,

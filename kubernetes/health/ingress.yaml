@@ -13,7 +13,13 @@ metadata:
 spec:
   ingressClassName: cloudflare-tunnel
   rules:
-    - host: health.cereal.nature.leafbit.uk
+    # Single-level subdomain on purpose. Cloudflare's free Universal SSL covers
+    # only `leafbit.uk` and `*.leafbit.uk`; a four-label host like
+    # health.cereal.nature.leafbit.uk is NOT covered and fails the TLS handshake
+    # with a bare "sslv3 alert handshake failure" — DNS resolves and the tunnel
+    # route exists, so it looks like a working setup right up until you curl it.
+    # Multi-level coverage needs Advanced Certificate Manager (paid).
+    - host: cereal-health.leafbit.uk
       http:
         paths:
           # Prefix, not Exact: the strrl controller skips the whole Ingress with
