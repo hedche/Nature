@@ -25,24 +25,17 @@ spec:
       interval: 30s
       # The mgr Service fronts the active mgr only; the standby is not scraped.
       honorLabels: true
----
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: rook-ceph-exporter
-  namespace: monitoring
-  labels:
-    app.kubernetes.io/name: rook-ceph-exporter
-    app.kubernetes.io/part-of: monitoring
-spec:
-  namespaceSelector:
-    matchNames: [rook-ceph]
-  selector:
-    matchLabels:
-      app: rook-ceph-exporter
-      rook_cluster: rook-ceph
-  endpoints:
-    - port: ceph-exporter-http-metrics
-      path: /metrics
-      interval: 30s
-      honorLabels: true
+
+# rook-ceph-exporter is deliberately NOT scraped.
+#
+# It emits the same series twice in a single response, so every scrape logged
+#   "Error on ingesting samples with different value but same timestamp"
+#   scrape_pool=serviceMonitor/monitoring/rook-ceph-exporter/0 num_dropped=62
+# and kept PrometheusDuplicateTimestamps firing. Checked what it was buying us
+# first: every metric the alerts in ./rules/nature-storage.yaml actually read —
+# ceph_health_status, ceph_osd_up, ceph_mon_quorum_status, ceph_cluster_total_bytes,
+# ceph_cluster_total_used_bytes — comes from rook-ceph-mgr above. The exporter
+# added 1,063 local series of per-daemon performance counters that nothing queries.
+#
+# Re-add it only alongside rules that use ceph_daemon_* metrics, and expect the
+# duplicate-timestamp warnings to come back with it.

@@ -69,10 +69,11 @@ spec:
           annotations:
             summary: "Ceph metrics are gone — all eight storage alerts are blind"
             description: >-
-              Check the ServiceMonitors in ../servicemonitor-ceph.yaml still match
-              rook's Services. Verified 2026-08-31: rook-ceph-mgr carries
-              app=rook-ceph-mgr port http-metrics:9283, and rook-ceph-exporter
-              carries app=rook-ceph-exporter port ceph-exporter-http-metrics:9926.
+              Check the ServiceMonitor in ../servicemonitor-ceph.yaml still matches
+              rook's Service. Verified 2026-08-31: rook-ceph-mgr carries
+              app=rook-ceph-mgr port http-metrics:9283. Every ceph_* metric these
+              alerts read comes from the mgr; rook-ceph-exporter is intentionally
+              not scraped.
 
         - alert: KernelMonitorSeriesMissing
           expr: absent(problem_gauge)
