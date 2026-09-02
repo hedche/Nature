@@ -103,6 +103,12 @@ All pushed by `scripts/secrets.sh push --cluster cereal`; schemas documented in
 |---|---|---|
 | `grafana-cloud-credentials` | `monitoring` | `prometheus-username`, `prometheus-token` |
 | `alertmanager-telegram` | `monitoring` | `bot-token` |
+
+The Telegram secrets deliberately **reuse the peanut bot** — same `TELEGRAM_BOT_TOKEN` and
+same `TELEGRAM_CHAT_ID` already stored under `peanut-secrets`. No second bot to create, no
+second token to rotate. They are copied into their own entries rather than referenced,
+because Kubernetes Secrets are not cross-namespace and Flux `substituteFrom` needs the
+value in `flux-system`.
 | `nature-vars` | `flux-system` | `TELEGRAM_CHAT_ID`, `GRAFANA_CLOUD_PROM_URL`, `GRAFANA_CLOUD_LOKI_URL`, `GRAFANA_CLOUD_LOKI_USERNAME` |
 
 `nature-vars` is consumed by Flux `postBuild.substituteFrom`, not mounted. The chat ID and
@@ -228,7 +234,9 @@ uses as the LAN-side dead-man's switch.
   change in `talos/controlplane.yaml` is applied; flip them to `true` afterwards. etcd
   needs a machine-config change of its own and is deferred — on a single-control-plane
   cluster the etcd static-pod restart is the riskiest change available.
-- No metrics-server, so no `kubectl top` and no HPAs. That needs
-  `machine.kubelet.extraArgs.rotate-server-certificates` plus the kubelet-serving-cert
-  approver, which must be deployed *before* the flag is flipped or kubelet CSRs sit
-  pending. Worth doing as an isolated change, cereal last.
+- `remoteWrite` to Grafana Cloud is **commented out** in `helmrelease.yaml`, and the
+  `logging` Kustomization is commented out of `kubernetes/flux/kustomization.yaml`. Both
+  need the three `GRAFANA_CLOUD_*` keys in `nature-vars`, which do not exist until the
+  stack is created. Everything else runs standalone. Re-enable at rollout steps 8 and 11.
+- ~~No metrics-server~~ — metrics-server was deployed separately on `main`
+  (`kubernetes/flux/metrics-server.yaml`) and `kubectl top` works, so this gap is closed.

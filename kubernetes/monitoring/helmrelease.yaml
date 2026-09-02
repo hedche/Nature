@@ -75,11 +75,13 @@ spec:
 
         resources:
           requests:
-            # Deliberately modest. snap and pop sit at 91-95% of allocatable CPU
-            # *requested* (rook-ceph reserves 1000m per mon and per OSD), so a
-            # 300m request would not fit. Requests are a scheduling floor, not a
-            # cap — see the limits note below.
-            cpu: 150m
+            # Was 150m: snap and pop used to sit at 91-95% of allocatable CPU
+            # *requested*, so nothing larger would schedule. Those requests were
+            # lowered cluster-wide and the workers now sit at 18-22% (measured
+            # 2026-09-02), so this goes back to the originally intended 300m —
+            # about 5% of one worker. Deliberately not larger: headroom exists to
+            # absorb spikes, not to be pre-allocated by the monitoring stack.
+            cpu: 300m
             memory: 1500Mi
           limits:
             # No CPU limit on purpose: throttling a TSDB compaction is worse for
@@ -103,70 +105,77 @@ spec:
         #
         # Bringing the stack up before you have a Grafana Cloud account? Comment
         # this whole block out; everything else works standalone.
-        remoteWrite:
-          - url: "${GRAFANA_CLOUD_PROM_URL}"
-            name: grafana-cloud
-            remoteTimeout: 30s
-            basicAuth:
-              username:
-                name: grafana-cloud-credentials
-                key: prometheus-username
-              password:
-                name: grafana-cloud-credentials
-                key: prometheus-token
-            queueConfig:
-              capacity: 5000
-              maxShards: 4
-              maxSamplesPerSend: 1000
-            writeRelabelConfigs:
-              # 1. Allow-list by metric name. Anything not listed is dropped before
-              #    it leaves the cluster, so it never counts against the cap.
-              #    Raw local cardinality is ~50-70k; this ships ~2k.
-              - sourceLabels: [__name__]
-                action: keep
-                regex: >-
-                  up|ALERTS|nature:.*|
-                  node_power_supply_online|node_power_supply_capacity|node_boot_time_seconds|
-                  node_load1|node_load5|node_load15|node_timex_offset_seconds|
-                  node_memory_MemTotal_bytes|node_memory_MemAvailable_bytes|
-                  node_filesystem_avail_bytes|node_filesystem_size_bytes|node_filesystem_readonly|
-                  node_network_receive_bytes_total|node_network_transmit_bytes_total|
-                  node_network_receive_errs_total|node_network_transmit_errs_total|
-                  node_network_receive_drop_total|node_network_transmit_drop_total|
-                  node_disk_read_bytes_total|node_disk_written_bytes_total|node_disk_io_time_seconds_total|
-                  node_hwmon_temp_celsius|node_uname_info|node_time_seconds|
-                  kube_node_info|kube_node_status_condition|kube_node_spec_unschedulable|
-                  kube_pod_status_phase|kube_pod_container_status_restarts_total|
-                  kube_deployment_spec_replicas|kube_deployment_status_replicas_available|
-                  kube_daemonset_status_desired_number_scheduled|kube_daemonset_status_number_ready|
-                  kube_statefulset_replicas|kube_statefulset_status_replicas_ready|
-                  kube_job_status_failed|kube_persistentvolumeclaim_status_phase|
-                  kubelet_running_pods|kubelet_running_containers|
-                  kubelet_volume_stats_available_bytes|kubelet_volume_stats_capacity_bytes|
-                  ceph_health_status|ceph_mon_quorum_status|ceph_osd_up|ceph_osd_in|
-                  ceph_cluster_total_bytes|ceph_cluster_total_used_bytes|
-                  ceph_pool_stored|ceph_pool_max_avail|
-                  ceph_pg_degraded|ceph_pg_undersized|ceph_pg_inconsistent|
-                  gotk_reconcile_condition|gotk_suspend_status|
-                  etcd_server_has_leader|apiserver_current_inflight_requests|
-                  problem_counter|problem_gauge|
-                  probe_success|probe_duration_seconds|probe_icmp_duration_seconds|
-                  prometheus_tsdb_head_series|
-                  prometheus_remote_storage_samples_failed_total|
-                  prometheus_remote_storage_samples_dropped_total
-              # 2. gotk_reconcile_condition fans out across condition types; only
-              #    Ready is actionable.
-              - sourceLabels: [__name__, type]
-                action: drop
-                regex: gotk_reconcile_condition;(?:Stalled|Reconciling|Suspended)
-              # 3. kube_pod_status_phase emits a series per phase per pod, mostly zeros.
-              - sourceLabels: [__name__, phase]
-                action: drop
-                regex: kube_pod_status_phase;(?:Succeeded|Unknown)
-              # 4. These labels mint a brand new series on every pod restart, which
-              #    is how a homelab quietly eats a 10k cap.
-              - regex: (uid|pod_ip|container_id|image_id|id)
-                action: labeldrop
+        # DISABLED FOR PHASE 1 — no Grafana Cloud stack exists yet, so
+        # ${GRAFANA_CLOUD_PROM_URL} has no value in the nature-vars Secret. Flux
+        # substitutes a missing key as an EMPTY STRING (it does not fail), and an
+        # empty remoteWrite.url stops Prometheus loading its config entirely. So
+        # the whole block is commented out rather than left to resolve to "".
+        # Re-enable by uncommenting after step 8 of the rollout, once the three
+        # GRAFANA_CLOUD_* keys are in nature-vars.
+#         remoteWrite:
+#           - url: "${GRAFANA_CLOUD_PROM_URL}"
+#             name: grafana-cloud
+#             remoteTimeout: 30s
+#             basicAuth:
+#               username:
+#                 name: grafana-cloud-credentials
+#                 key: prometheus-username
+#               password:
+#                 name: grafana-cloud-credentials
+#                 key: prometheus-token
+#             queueConfig:
+#               capacity: 5000
+#               maxShards: 4
+#               maxSamplesPerSend: 1000
+#             writeRelabelConfigs:
+#               # 1. Allow-list by metric name. Anything not listed is dropped before
+#               #    it leaves the cluster, so it never counts against the cap.
+#               #    Raw local cardinality is ~50-70k; this ships ~2k.
+#               - sourceLabels: [__name__]
+#                 action: keep
+#                 regex: >-
+#                   up|ALERTS|nature:.*|
+#                   node_power_supply_online|node_power_supply_capacity|node_boot_time_seconds|
+#                   node_load1|node_load5|node_load15|node_timex_offset_seconds|
+#                   node_memory_MemTotal_bytes|node_memory_MemAvailable_bytes|
+#                   node_filesystem_avail_bytes|node_filesystem_size_bytes|node_filesystem_readonly|
+#                   node_network_receive_bytes_total|node_network_transmit_bytes_total|
+#                   node_network_receive_errs_total|node_network_transmit_errs_total|
+#                   node_network_receive_drop_total|node_network_transmit_drop_total|
+#                   node_disk_read_bytes_total|node_disk_written_bytes_total|node_disk_io_time_seconds_total|
+#                   node_hwmon_temp_celsius|node_uname_info|node_time_seconds|
+#                   kube_node_info|kube_node_status_condition|kube_node_spec_unschedulable|
+#                   kube_pod_status_phase|kube_pod_container_status_restarts_total|
+#                   kube_deployment_spec_replicas|kube_deployment_status_replicas_available|
+#                   kube_daemonset_status_desired_number_scheduled|kube_daemonset_status_number_ready|
+#                   kube_statefulset_replicas|kube_statefulset_status_replicas_ready|
+#                   kube_job_status_failed|kube_persistentvolumeclaim_status_phase|
+#                   kubelet_running_pods|kubelet_running_containers|
+#                   kubelet_volume_stats_available_bytes|kubelet_volume_stats_capacity_bytes|
+#                   ceph_health_status|ceph_mon_quorum_status|ceph_osd_up|ceph_osd_in|
+#                   ceph_cluster_total_bytes|ceph_cluster_total_used_bytes|
+#                   ceph_pool_stored|ceph_pool_max_avail|
+#                   ceph_pg_degraded|ceph_pg_undersized|ceph_pg_inconsistent|
+#                   gotk_reconcile_condition|gotk_suspend_status|
+#                   etcd_server_has_leader|apiserver_current_inflight_requests|
+#                   problem_counter|problem_gauge|
+#                   probe_success|probe_duration_seconds|probe_icmp_duration_seconds|
+#                   prometheus_tsdb_head_series|
+#                   prometheus_remote_storage_samples_failed_total|
+#                   prometheus_remote_storage_samples_dropped_total
+#               # 2. gotk_reconcile_condition fans out across condition types; only
+#               #    Ready is actionable.
+#               - sourceLabels: [__name__, type]
+#                 action: drop
+#                 regex: gotk_reconcile_condition;(?:Stalled|Reconciling|Suspended)
+#               # 3. kube_pod_status_phase emits a series per phase per pod, mostly zeros.
+#               - sourceLabels: [__name__, phase]
+#                 action: drop
+#                 regex: kube_pod_status_phase;(?:Succeeded|Unknown)
+#               # 4. These labels mint a brand new series on every pod restart, which
+#               #    is how a homelab quietly eats a 10k cap.
+#               - regex: (uid|pod_ip|container_id|image_id|id)
+#                 action: labeldrop
 
     # -------------------------------------------------------------- Alertmanager
     alertmanager:

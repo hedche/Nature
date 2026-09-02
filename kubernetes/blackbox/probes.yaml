@@ -27,7 +27,7 @@ spec:
         # garage powerline link is dead. Resolve this BEFORE deploying blackbox,
         # or LanHostUnreachable and PowerlineLinkDegraded fire on day one and
         # teach you to ignore the new alerts.
-        - 10.30.1.21 # arctic — still behind the garage powerline
+        # - 10.30.1.21 # arctic — RE-ENABLE once it is back up (see note above)
       labels:
         job: blackbox-icmp
 ---
