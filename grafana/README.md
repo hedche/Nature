@@ -10,8 +10,9 @@ can create a Grafana Cloud account, and `grafana_cloud_stack` cannot create a st
 the free tier — it works only on paid accounts. Everything after these two steps is
 Terraform.
 
-**1. Create the account and a free stack.** <https://grafana.com/auth/sign-up/create-user>,
-EU region. **Do not run the "Install Kubernetes Monitoring" onboarding** — that activates a
+**1. Create the account and a free stack.** <https://grafana.com/auth/sign-up/create-user>.
+Region does not matter — the Terraform reads `region_slug` from the API rather than
+hardcoding it. (This deployment landed on `prod-gb-south-0`, UK/GCP europe-west2.) **Do not run the "Install Kubernetes Monitoring" onboarding** — that activates a
 separately-billed SKU charged on host- and container-hours, and this cluster (4 nodes,
 ~122 containers) would exhaust the free allowance around day 13 of every month.
 
@@ -109,6 +110,18 @@ to live in the PromQL.
 The local `PrometheusRule`s in `../kubernetes/monitoring-rules/rules/` are the opposite
 case — Prometheus has no No Data concept, so the `absent()` calls there are correct and
 must be left alone.
+
+## Deployed state, 2026-09-03
+
+Stack `hedche` (`prod-gb-south-0`). Verified after apply:
+
+| | |
+|---|---|
+| Active series in Grafana Cloud | **1,510** of the 10,000 cap (15%) |
+| remote_write failures | 0/s |
+| Cloud alert rules | 8/8 `inactive` |
+| Synthetics | green from London, Frankfurt, Paris |
+| Loki | shipping, 0 errors |
 
 ## Costs
 
