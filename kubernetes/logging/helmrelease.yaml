@@ -57,8 +57,19 @@ spec:
               fieldPath: spec.nodeName
         - name: LOKI_URL
           value: "${GRAFANA_CLOUD_LOKI_URL}"
+        # From the Secret, NOT a ${} substitution. The Loki user id is numeric
+        # (385250), and `kustomize build` strips the quotes from "${VAR}" because
+        # the placeholder is a safe plain scalar — so envsubst yielded
+        # `value: 385250`, a YAML number, and EnvVar.value must be a string:
+        #   DaemonSet ... cannot unmarshal number into Go struct field
+        #   EnvVar.spec.template.spec.containers.env.value of type string
+        # Same trap as the Telegram chat id in ../notifications/. Reading it from
+        # the Secret sidesteps substitution entirely instead of working around it.
         - name: LOKI_USERNAME
-          value: "${GRAFANA_CLOUD_LOKI_USERNAME}"
+          valueFrom:
+            secretKeyRef:
+              name: grafana-cloud-credentials
+              key: loki-username
         - name: LOKI_TOKEN
           valueFrom:
             secretKeyRef:

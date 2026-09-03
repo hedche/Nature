@@ -90,13 +90,24 @@ spec:
               the 10k active-series free-tier cap (which drops samples silently).
               Check Cost management in Grafana Cloud.
 
-        - alert: RemoteWriteDroppingSamples
-          expr: rate(prometheus_remote_storage_samples_dropped_total[10m]) > 0
-          for: 30m
+        # NOT prometheus_remote_storage_samples_dropped_total. That counts samples
+        # discarded by RELABELLING, which is exactly what the allow-list in
+        # ../../monitoring/helmrelease.yaml does on purpose — measured at ~1,000/s
+        # on 2026-09-03, so the obvious rule would fire permanently and be
+        # measuring our own design. Falling behind is the real symptom of the
+        # cloud rejecting or throttling writes.
+        - alert: RemoteWriteBehind
+          expr: >-
+            (time() - prometheus_remote_storage_queue_highest_sent_timestamp_seconds) > 300
+          for: 15m
           labels:
             severity: warning
           annotations:
-            summary: "Grafana Cloud is dropping samples — likely over the free-tier cap"
+            summary: "remote_write is more than 5 minutes behind"
+            description: >-
+              Samples are queuing rather than landing. Over the 10k free-tier
+              active-series cap Grafana Cloud throttles, which shows up here first.
+              Check Cost management, and prometheus_remote_storage_samples_failed_total.
 
         # Always fires. Alertmanager POSTs it to Home Assistant every minute; HA
         # treats its *absence* for 15 minutes as the LAN-side dead-man's switch.
