@@ -1,0 +1,7 @@
+# State holds the push token and the stack service-account key in PLAINTEXT.
+.terraform/
+# .terraform.lock.hcl IS committed, matching proxmox/ and oracle/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log

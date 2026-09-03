@@ -42,9 +42,20 @@ spec:
         - record: nature:apiserver_request_errors:rate5m
           expr: sum(rate(apiserver_request_total{code=~"5.."}[5m]))
 
-        # THE heartbeat. The Grafana Cloud dead-man's switch is
-        # `absent(nature:cluster_heartbeat)` — if this stops arriving, the cluster
-        # is gone and the cloud pages you. Do not remove or rename without
-        # updating the cloud rule.
+        # THE heartbeat. If this stops arriving in Grafana Cloud, the cluster is
+        # gone and the cloud pages you. Do not remove or rename it without also
+        # updating ../../../grafana/rules.tf (ClusterSilent).
+        #
+        # The cloud rule is NOT `absent(nature:cluster_heartbeat)`, for two reasons:
+        #   1. Grafana-managed rules treat an empty result as No Data, and absent()
+        #      returns empty while the heartbeat is HEALTHY — so paired with
+        #      no_data_state=Alerting it fires permanently. See grafana/README.md.
+        #   2. Grafana Cloud is a shared tenant across cereal and oracle, so an
+        #      unqualified matcher stays satisfied while EITHER cluster is alive and
+        #      cereal could die unnoticed. The cluster label comes from
+        #      externalLabels in ../../monitoring/helmrelease.yaml.
+        # The actual rule is:
+        #   max_over_time(nature:cluster_heartbeat{cluster="cereal"}[10m]) or on() vector(0)
+        # thresholded below 1.
         - record: nature:cluster_heartbeat
           expr: vector(1)

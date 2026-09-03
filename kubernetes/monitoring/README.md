@@ -170,31 +170,50 @@ Nothing below can be GitOps'd today. See the Terraform note at the end.
 5. **Alerting → Contact points**: `telegram-lydia` and `email-lydia`
    (lydia@leafbit.uk). Send a test to each. Notification policy: default → Telegram,
    nested `severity=critical` → both.
-6. **Alerting → Alert rules** — the off-site half of the design. For every one of these,
-   set **"Alert state if no data" to `Alerting`** (the default, `NoData`, does not notify)
-   and the evaluation interval to 1m:
+6. **Alerting → Alert rules** — do NOT create these by hand. They live in
+   `../../grafana/` as Terraform (`terraform apply`), because the natural Prometheus
+   phrasing is actively wrong here and hand-clicking reproduces the bug.
 
-   | Rule | Query | For |
-   |---|---|---|
-   | `ClusterSilent` (the dead-man's switch) | `absent(nature:cluster_heartbeat{cluster="cereal"})` | 5m |
-   | `NoDataFromCereal` | `absent(up{job="node-exporter",cluster="cereal"})` | 5m |
-   | `NodeMissing` | `count(up{job="node-exporter",cluster="cereal"} == 1) < 4` | 10m |
-   | `CerealOnBatteryCloud` | `node_power_supply_online{power_supply="ACAD"} == 0` | 5m |
-   | `NVMeDMAFaultCloud` | `kube_node_status_condition{condition="NVMeDMAFault",status="true"} == 1` | 5m |
-   | `CephUnhealthyCloud` | `ceph_health_status > 0` | 30m |
-   | `PublicEndpointDown` | `probe_success{job="synthetic"} == 0` | 5m |
-   | `SeriesCapApproaching` | `grafanacloud_instance_active_series > 8000` | 1h |
-   | `LocalAlertUndelivered` | `ALERTS{alertstate="firing",severity="critical",cluster="cereal"} == 1` | 10m |
+   **The trap, in one paragraph.** Grafana-managed rules are not Prometheus rules. In
+   Prometheus a comparison *filters* — `x == 0` returns an empty vector when false, and
+   empty means "not firing". Grafana classifies an empty result as **No Data** and applies
+   `no_data_state` to it. So `absent(...)`, `x == 0`, `x > 0`, `< 4` all return empty during
+   **normal** operation, and a blanket `no_data_state = Alerting` makes every one of them
+   fire permanently — carrying no information, and never resolving, so a real outage
+   produces no new notification. Grafana's own guidance: *"Grafana Alerting implements a
+   built-in No Data state logic, so you don't need to detect missing data with `absent_*`
+   queries."* An expression stage cannot rescue it either: the expression engine propagates
+   No Data, so Reduce/Threshold over an empty frame is still No Data.
 
-   `LocalAlertUndelivered` is the third leg of the delivery guarantee. The `ALERTS`
-   metric is remote_written, so Grafana Cloud can see that a critical alert is firing
-   inside the cluster and notify you over its own contact points — even if the local
-   Alertmanager is failing to deliver anything at all. Together with the
-   `critical-dual-path` receiver (Telegram *and* the Home Assistant webhook), a
-   critical alert now has three independent ways to reach you.
+   Every cloud rule therefore uses query **A** = bare number (no comparison, with
+   `or on() vector(0)` where the series can vanish), expression **B** = threshold holding
+   the comparison. `no_data_state` is decided per rule:
 
-   `CerealOnBatteryCloud` duplicates a local rule on purpose — it survives the local
-   Alertmanager failing.
+   | Rule | Query A | Threshold B | no_data_state | For |
+   |---|---|---|---|---|
+   | `ClusterSilent` | `max_over_time(nature:cluster_heartbeat{cluster="cereal"}[10m]) or on() vector(0)` | `< 1` | Alerting | 5m |
+   | `NodeMissing` | `count(up{job="node-exporter",cluster="cereal"} == 1) or on() vector(0)` | `< 4` | Alerting | 10m |
+   | `CerealOnBatteryCloud` | `min(node_power_supply_online{power_supply="ACAD",cluster="cereal"})` | `< 1` | Alerting | 5m |
+   | `NVMeDMAFaultCloud` | `max(kube_node_status_condition{condition="NVMeDMAFault",status="true",cluster="cereal"}) or on() vector(0)` | `> 0` | Alerting | 5m |
+   | `CephUnhealthyCloud` | `max(ceph_health_status{cluster="cereal"})` | `> 0` | Alerting | 30m |
+   | `PublicEndpointDown` | `min(probe_success{job="synthetic"})` | `< 1` | Alerting | 5m |
+   | `SeriesCapApproaching` | `grafanacloud_instance_active_series` | `> 8000` | **OK** | 1h |
+   | `LocalAlertUndelivered` | `count(ALERTS{alertstate="firing",severity="critical",cluster="cereal"}) or on() vector(0)` | `> 0` | **OK** | 10m |
+
+   The last two use `OK` because for them an empty result is the *healthy* case — nothing
+   firing, or a billing metric that simply is not a liveness signal.
+
+   `NoDataFromCereal` from the original plan is gone: it was `absent(up{...})`, the same bug
+   twice, and redundant with `ClusterSilent`.
+
+   Note also that "No Data does not notify" is **false** — it raises a `DatasourceNoData`
+   instance. The real problem is that that instance carries `alertname=DatasourceNoData`
+   rather than your `severity` label, so it misses the nested critical branch of the
+   notification policy and arrives only on the default route.
+
+   The `absent()` calls in `../monitoring-rules/rules/nature-selfcheck.yaml` are the
+   opposite case and are correct: Prometheus has no No Data concept.
+
 7. **Testing & synthetics → Checks**: HTTP check against the public `/healthz`
    (`../health/`), 60s, 2–3 locations. Synthetics does not alert on its own; wire
    `probe_success` into the rule above.
