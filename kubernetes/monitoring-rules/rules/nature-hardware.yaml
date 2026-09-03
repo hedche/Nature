@@ -45,8 +45,24 @@ spec:
           annotations:
             summary: "Talos block controller cannot lock a device on {{ $labels.instance }}"
             description: >-
-              The `failed to lock device` retry loop that follows a DMAR fault
-              storm. Same remedy: physical power-cycle, not a remote reboot.
+              CHECK WHICH DEVICE FIRST — this does NOT imply the NVMe. Read it from
+              the node condition, which carries the raw kmsg line:
+              kubectl get node {{ $labels.instance }} -o jsonpath=
+              '{.status.conditions[?(@.type=="BlockDeviceLockLoop")].message}'
+              On 2026-09-02 this fired on crackle for id "sda" — the Ceph OSD SATA
+              SSD at pci-0000:00:17.0-ata-1 — with NVMeDMAFault=False throughout.
+              So it is NOT only the tail of a DMAR storm, and reseating the NVMe
+              would have been the wrong drive. If NVMeDMAFaultStorm is also firing,
+              follow that alert instead. If it is not, treat this as the named
+              device failing on its own.
+              Consequence either way: node-problem-detector latches this as a
+              PERMANENT condition (it does not self-clear — only an NPD restart or
+              a reboot resets it), a NoExecute taint follows, and the taint manager
+              evicts pods. Any pod holding an RWO Ceph volume on that node then
+              hangs in Terminating because the kubelet cannot unmount it, stranding
+              the VolumeAttachment so no replacement pod can attach anywhere else.
+              On 2026-09-02 that took peanut down for ~3h and left radarr, prowlarr
+              and sonarr stuck alongside it.
 
         # The consequence, caught independently of the cause. kubelet healthz binds
         # loopback only, so this can only be observed from on the node itself.

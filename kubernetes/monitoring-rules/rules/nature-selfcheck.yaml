@@ -75,6 +75,23 @@ spec:
               alerts read comes from the mgr; rook-ceph-exporter is intentionally
               not scraped.
 
+        - alert: PeanutBriefingMetricMissing
+          expr: absent(kube_cronjob_status_last_successful_time{cronjob="peanut-daily-briefing"})
+          for: 15m
+          labels:
+            severity: critical
+            channel: pipeline
+          annotations:
+            summary: "The peanut briefing metric is gone — PeanutBriefingSilent can no longer fire"
+            description: >-
+              PeanutBriefingSilent is the ONLY thing watching a workload that fails
+              without notifying anyone (run.py exits 1 silently; a Trello rename
+              once cost 33 days undetected). The series disappears if the CronJob
+              is deleted or renamed, or if kube-state-metrics drops its cronjob
+              collector — and then the silence looks exactly like success again.
+              Confirm the CronJob still exists:
+              kubectl -n peanut get cronjob peanut-daily-briefing
+
         - alert: KernelMonitorSeriesMissing
           expr: absent(problem_gauge)
           for: 15m

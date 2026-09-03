@@ -1,0 +1,57 @@
+# Is the daily briefing still arriving?
+#
+# peanut's CronJob is the one workload here whose failure is genuinely invisible.
+# app/run.py logs the traceback and sys.exit(1) — it sends nothing to Telegram,
+# unlike the web path in app/main.py which reports its own errors. So a broken
+# briefing looks exactly like a working one from the outside.
+#
+# That is not hypothetical: TRELLO_LIST_NAME drifted when a Trello list was
+# renamed "New ✨" -> "Next ✨" on ~2026-07-30, every run failed at
+# trello.py:153, and it went unnoticed for 33 days until someone happened to
+# trigger an on-demand report and saw the error.
+#
+# KubeJobFailed does not close this gap. It needs a Job object in Failed state;
+# it stays silent if the CronJob is suspended, if pods never schedule (the
+# required podAffinity to the web pod cannot be satisfied), or if the schedule
+# simply stops firing. This rule watches for the ABSENCE OF SUCCESS instead,
+# which catches all of those.
+#
+# The ConfigMap's HEALTHCHECK_PING_URL implements the same idea out-of-band
+# (run.py:76 pings it after a successful run) but is empty, and needs an
+# external account to be useful. This is the in-cluster equivalent, and it
+# reaches Grafana Cloud because `ALERTS` is in the remote_write allow-list.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nature-peanut
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: monitoring
+spec:
+  groups:
+    - name: nature.peanut
+      rules:
+        # Schedule is "30 8 * * *" (UTC — no timeZone set), and a healthy run
+        # takes 36-50s. So this metric sawtooths 0 -> 24h in normal operation.
+        # 26h fires about 2h after a missed 08:30 slot: same morning, with
+        # enough slack that a slow run or a late controller tick cannot trip it.
+        # Verified live 2026-09-03: the expression below read 47217s (13.1h)
+        # against a successful 08:30 run, i.e. comfortably under the threshold.
+        - alert: PeanutBriefingSilent
+          expr: time() - kube_cronjob_status_last_successful_time{cronjob="peanut-daily-briefing"} > 26 * 3600
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No successful peanut briefing for over 26h"
+            description: >-
+              The daily briefing has not completed successfully since
+              {{ $value | humanizeDuration }} ago. It fails silently by design —
+              run.py exits 1 without notifying — so nothing else will tell you.
+              Check the most recent run with:
+              kubectl -n peanut get jobs
+              and, because the Job controller deletes pods once backoffLimit is
+              exhausted, capture a live one with:
+              kubectl -n peanut create job peanut-debug --from=cronjob/peanut-daily-briefing
+              then read its logs. A successful manual run posts a real briefing
+              to Telegram and writes /data/memory.json.

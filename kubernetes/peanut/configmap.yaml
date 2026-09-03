@@ -22,4 +22,9 @@ data:
   # Dead-man's-switch: pinged after each successful daily briefing (e.g. a
   # healthchecks.io check URL); the service alerts when briefings go silent.
   # Empty disables the ping.
+  #
+  # Currently empty, so the in-cluster PeanutBriefingSilent alert
+  # (kubernetes/monitoring-rules/rules/nature-peanut.yaml) is what covers this
+  # gap. Setting a URL here adds an OUT-OF-BAND second path that survives the
+  # whole cluster being down, which the Prometheus rule by definition cannot.
   HEALTHCHECK_PING_URL: ""
