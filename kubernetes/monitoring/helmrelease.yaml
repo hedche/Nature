@@ -141,38 +141,23 @@ spec:
               # 1. Allow-list by metric name. Anything not listed is dropped before
               #    it leaves the cluster, so it never counts against the cap.
               #    Raw local cardinality is ~50-70k; this ships ~2k.
+              # 1. Allow-list by metric name. Anything not listed is dropped before
+              #    it leaves the cluster, so it never counts against the cap.
+              #    Raw local cardinality is ~80k; this ships ~2k.
+              #
+              #    ONE LINE, DELIBERATELY. Do NOT reflow this onto multiple lines.
+              #    A YAML folded scalar (>-) joins lines with a SPACE, and a
+              #    Prometheus relabel regex is fully anchored, so every alternative
+              #    that began a line silently became " name" and could never match.
+              #    That is not a theoretical risk: it shipped, and 28 of these 67
+              #    names — including node_power_supply_online and ceph_health_status,
+              #    the two most important — were dropped for the first hours of
+              #    remote_write, which made CerealOnBatteryCloud and
+              #    CephUnhealthyCloud fire on NoData. scripts/validate-cereal-flux.sh
+              #    now fails the build if a space reappears here.
               - sourceLabels: [__name__]
                 action: keep
-                regex: >-
-                  up|ALERTS|nature:.*|
-                  node_power_supply_online|node_power_supply_capacity|node_boot_time_seconds|
-                  node_load1|node_load5|node_load15|node_timex_offset_seconds|
-                  node_memory_MemTotal_bytes|node_memory_MemAvailable_bytes|
-                  node_filesystem_avail_bytes|node_filesystem_size_bytes|node_filesystem_readonly|
-                  node_network_receive_bytes_total|node_network_transmit_bytes_total|
-                  node_network_receive_errs_total|node_network_transmit_errs_total|
-                  node_network_receive_drop_total|node_network_transmit_drop_total|
-                  node_disk_read_bytes_total|node_disk_written_bytes_total|node_disk_io_time_seconds_total|
-                  node_hwmon_temp_celsius|node_uname_info|node_time_seconds|
-                  kube_node_info|kube_node_status_condition|kube_node_spec_unschedulable|
-                  kube_pod_status_phase|kube_pod_container_status_restarts_total|
-                  kube_deployment_spec_replicas|kube_deployment_status_replicas_available|
-                  kube_daemonset_status_desired_number_scheduled|kube_daemonset_status_number_ready|
-                  kube_statefulset_replicas|kube_statefulset_status_replicas_ready|
-                  kube_job_status_failed|kube_persistentvolumeclaim_status_phase|
-                  kubelet_running_pods|kubelet_running_containers|
-                  kubelet_volume_stats_available_bytes|kubelet_volume_stats_capacity_bytes|
-                  ceph_health_status|ceph_mon_quorum_status|ceph_osd_up|ceph_osd_in|
-                  ceph_cluster_total_bytes|ceph_cluster_total_used_bytes|
-                  ceph_pool_stored|ceph_pool_max_avail|
-                  ceph_pg_degraded|ceph_pg_undersized|ceph_pg_inconsistent|
-                  gotk_reconcile_condition|gotk_suspend_status|
-                  etcd_server_has_leader|apiserver_current_inflight_requests|
-                  problem_counter|problem_gauge|
-                  probe_success|probe_duration_seconds|probe_icmp_duration_seconds|
-                  prometheus_tsdb_head_series|
-                  prometheus_remote_storage_samples_failed_total|
-                  prometheus_remote_storage_samples_dropped_total
+                regex: "up|ALERTS|nature:.*|node_power_supply_online|node_power_supply_capacity|node_boot_time_seconds|node_load1|node_load5|node_load15|node_timex_offset_seconds|node_memory_MemTotal_bytes|node_memory_MemAvailable_bytes|node_filesystem_avail_bytes|node_filesystem_size_bytes|node_filesystem_readonly|node_network_receive_bytes_total|node_network_transmit_bytes_total|node_network_receive_errs_total|node_network_transmit_errs_total|node_network_receive_drop_total|node_network_transmit_drop_total|node_disk_read_bytes_total|node_disk_written_bytes_total|node_disk_io_time_seconds_total|node_hwmon_temp_celsius|node_uname_info|node_time_seconds|kube_node_info|kube_node_status_condition|kube_node_spec_unschedulable|kube_pod_status_phase|kube_pod_container_status_restarts_total|kube_deployment_spec_replicas|kube_deployment_status_replicas_available|kube_daemonset_status_desired_number_scheduled|kube_daemonset_status_number_ready|kube_statefulset_replicas|kube_statefulset_status_replicas_ready|kube_job_status_failed|kube_persistentvolumeclaim_status_phase|kubelet_running_pods|kubelet_running_containers|kubelet_volume_stats_available_bytes|kubelet_volume_stats_capacity_bytes|ceph_health_status|ceph_mon_quorum_status|ceph_osd_up|ceph_osd_in|ceph_cluster_total_bytes|ceph_cluster_total_used_bytes|ceph_pool_stored|ceph_pool_max_avail|ceph_pg_degraded|ceph_pg_undersized|ceph_pg_inconsistent|gotk_reconcile_condition|gotk_suspend_status|etcd_server_has_leader|apiserver_current_inflight_requests|problem_counter|problem_gauge|probe_success|probe_duration_seconds|probe_icmp_duration_seconds|prometheus_tsdb_head_series|prometheus_remote_storage_samples_failed_total|prometheus_remote_storage_samples_dropped_total"
               # 2. gotk_reconcile_condition fans out across condition types; only
               #    Ready is actionable.
               - sourceLabels: [__name__, type]

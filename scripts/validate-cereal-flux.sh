@@ -67,6 +67,29 @@ main() {
     validate_yaml_syntax
     download_flux_schemas
     validate_kustomize_overlays
+# --- remote_write allow-list must not contain folded-scalar spaces -------------
+# A YAML folded scalar (>-) joins lines with a space, and Prometheus relabel
+# regexes are fully anchored, so any alternative that begins a line becomes
+# " name" and silently never matches. This shipped once: 28 of 67 names were
+# dead, including node_power_supply_online and ceph_health_status.
+check_remote_write_allowlist() {
+    local f="kubernetes/monitoring/helmrelease.yaml"
+    [[ -f "$f" ]] || return 0
+    local rx
+    rx="$(yq eval '.spec.values.prometheus.prometheusSpec.remoteWrite[0].writeRelabelConfigs[0].regex // ""' "$f")"
+    [[ -n "$rx" && "$rx" != "null" ]] || return 0
+    if [[ "$rx" == *" "* ]]; then
+        echo "ERROR: remote_write allow-list regex contains a space." >&2
+        echo "       Keep it on ONE line — a folded scalar makes alternatives unmatchable." >&2
+        echo "       Offending: $(printf '%s' "$rx" | tr '|' '\n' | grep '^ ' | head -5 | tr '\n' ' ')" >&2
+        return 1
+    fi
+    echo "  remote_write allow-list: $(printf '%s' "$rx" | tr '|' '\n' | wc -l | tr -d ' ') names, no folded spaces"
+}
+
+check_remote_write_allowlist || exit 1
+
+
     info "All cereal Flux validations passed"
 }
 
