@@ -1,6 +1,13 @@
 # Nature homelab watchdog — the LAN-side vantage point for the cereal cluster.
 #
-# SOURCE OF TRUTH: <repo>/home-assistant/ha-config/packages/nature-watchdog.yaml
+# SOURCE OF TRUTH: <repo>/home-assistant/ha-config/packages/nature_watchdog.yaml
+#
+# The filename MUST use underscores. !include_dir_named turns the filename into
+# the package name, and HA validates that as a slug — nature-watchdog was
+# rejected with "invalid slug nature-watchdog (try nature_watchdog). Package will
+# not be initialized". `ha core check` still reported the config VALID, because
+# that is a warning rather than an error, so the deploy looked like it worked
+# while every entity below silently did not exist.
 # Deployed to hassio (10.30.1.60) by ../deploy.sh along with the other
 # packages — scp to /config/packages/ then `ha core check` and restart.
 # See ../../README.md for the one-time setup.

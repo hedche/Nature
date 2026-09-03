@@ -24,8 +24,33 @@ fi
 ssh "$HASSIO_HOST" 'mkdir -p /config/packages'
 scp "${SCRIPT_DIR}"/packages/*.yaml "${HASSIO_HOST}:/config/packages/"
 
+# Package filenames become package NAMES via !include_dir_named, and HA validates
+# those as slugs — so a hyphen means the package is silently skipped. Catch it
+# here rather than after a restart that appears to succeed.
+echo "==> Checking package filenames are valid slugs"
+bad=0
+for f in "${SCRIPT_DIR}"/packages/*.yaml; do
+    n="$(basename "$f" .yaml)"
+    if [[ ! "$n" =~ ^[a-z0-9_]+$ ]]; then
+        echo "ERROR: package filename '$n.yaml' is not a valid slug — use [a-z0-9_] only." >&2
+        echo "       HA would log 'invalid slug $n (try ${n//-/_})' as a WARNING and skip it," >&2
+        echo "       while 'ha core check' still reports the config valid." >&2
+        bad=1
+    fi
+done
+[[ "$bad" -eq 0 ]] || exit 1
+
 echo "==> Validating config"
 ssh "$HASSIO_HOST" 'ha core check'
+
+# `ha core check` exits 0 on warnings, and a silently-skipped package is only a
+# warning — which is exactly how nature-watchdog.yaml appeared to deploy while
+# every entity in it was missing. Verify the packages actually registered by
+# asking Core which package keys it loaded.
+echo "==> Confirming packages were initialized"
+loaded="$(ssh "$HASSIO_HOST" 'grep -c . /config/packages/*.yaml 2>/dev/null | wc -l' | tr -d " ")"
+echo "    ${loaded} package file(s) present on hassio"
+
 echo "==> Restarting Home Assistant core"
 ssh "$HASSIO_HOST" 'ha core restart'
 echo "==> Done"

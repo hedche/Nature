@@ -277,7 +277,7 @@ in place registers the automation twice, so one button press fires it twice.
 Package automations also stop being editable from the UI; edit them here and
 redeploy instead.
 
-## Cluster watchdog — `packages/nature-watchdog.yaml`
+## Cluster watchdog — `packages/nature_watchdog.yaml`
 
 The third vantage point for cereal cluster monitoring. cereal's own Prometheus cannot
 report that cereal is dead; Home Assistant runs on separate hardware, on the same LAN,
@@ -300,7 +300,7 @@ Deployed by `./deploy.sh` along with the other packages. Two things to do once:
 1. Confirm `notify.household` resolves — it is the notify group defined in
    `/config/configuration.yaml`, so a newly added phone is picked up by every
    automation without touching this package. To target something else, change it
-   in `packages/nature-watchdog.yaml` (Developer Tools → Actions → search "notify").
+   in `packages/nature_watchdog.yaml` (Developer Tools → Actions → search "notify").
 2. Prove the dead-man's switch actually fires rather than assuming it does:
    ```sh
    export KUBECONFIG=talos/kubeconfig
