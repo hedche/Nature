@@ -21,10 +21,57 @@ spec:
         app.kubernetes.io/name: peanut
         app.kubernetes.io/component: web
     spec:
+      # PodSecurity "restricted": the image ships no non-root USER and runs as
+      # uid 0, so runAsUser must be set explicitly or the kubelet refuses to
+      # start the container. uid 1000 has no /etc/passwd entry, which is fine:
+      # nothing in the app calls getpwuid/expanduser (verified).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        # Always (the default) makes the kubelet re-apply group ownership on
+        # EVERY mount, which is what repairs the pre-existing root-owned files
+        # on the PVC. Do NOT "optimise" this to OnRootMismatch: it skips the
+        # recursive walk once /data's root matches, permanently stranding any
+        # root-created file as group-read-only. telegram.py swallows the
+        # resulting OSError, so that loss would be silent.
+        fsGroupChangePolicy: Always
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Fail loudly if the runtime uid cannot write /data. telegram.py's
+        # _append_sent_message catches OSError and only logs, so a permission
+        # regression there is otherwise invisible. This turns it into a pod
+        # that never starts, which KubePodNotReady already alerts on.
+        - name: assert-data-writable
+          image: hedche/peanut:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - sh
+            - -euc
+            - |
+              test -w /data || { echo "FATAL: /data not writable by $(id -u):$(id -g)"; ls -lna /data; exit 1; }
+              for f in /data/memory.json /data/telegram_messages.jsonl; do
+                [ -e "$f" ] || continue
+                test -w "$f" || { echo "FATAL: $f not writable by $(id -u):$(id -g)"; ls -lna /data; exit 1; }
+              done
+              echo "data volume writable OK"
+          volumeMounts:
+            - name: memory
+              mountPath: /data
       containers:
         - name: peanut
           image: hedche/peanut:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: 8000
@@ -63,21 +110,44 @@ spec:
                 name: peanut-config
             - secretRef:
                 name: peanut-secrets
+          env:
+            # The image bakes HOME=/root, which is not writable as uid 1000, and
+            # uid 1000 has no passwd entry for expanduser() to fall back to.
+            - name: HOME
+              value: /tmp
           volumeMounts:
             - name: memory
               mountPath: /data
+          # Measured: container start -> uvicorn serving /health is ~12s. The old
+          # readiness probe fired at 10s (2s too early), failed, then waited a
+          # full 30s period, so the pod sat un-Ready until ~40s on every
+          # Recreate rollout. A startupProbe gates readiness/liveness, so
+          # neither needs an initialDelay.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 3
+            timeoutSeconds: 3
+            failureThreshold: 20
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 10
-            periodSeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # timeoutSeconds was previously unset, i.e. 1s, which is tight for a
+          # Python app mid-briefing. 20s x 3 gives a 60s kill budget against a
+          # 12s start.
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 30
-            periodSeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               cpu: 50m

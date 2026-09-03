@@ -31,6 +31,40 @@ spec:
             app.kubernetes.io/component: daily-briefing
         spec:
           restartPolicy: OnFailure
+          # Must match the Deployment's securityContext exactly: both pods share
+          # the same RWO PVC, so a differing fsGroup would thrash its ownership.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: Always
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            # memory.py:34 write_text() has no local handler, so a /data
+            # permission fault kills the run BEFORE send_briefing — a silently
+            # missing briefing. Fail here instead, where KubeJobFailed sees it.
+            - name: assert-data-writable
+              image: hedche/peanut:latest
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              command:
+                - sh
+                - -euc
+                - |
+                  test -w /data || { echo "FATAL: /data not writable by $(id -u):$(id -g)"; ls -lna /data; exit 1; }
+                  for f in /data/memory.json /data/telegram_messages.jsonl; do
+                    [ -e "$f" ] || continue
+                    test -w "$f" || { echo "FATAL: $f not writable by $(id -u):$(id -g)"; ls -lna /data; exit 1; }
+                  done
+                  echo "data volume writable OK"
+              volumeMounts:
+                - name: memory
+                  mountPath: /data
           affinity:
             podAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
@@ -43,6 +77,10 @@ spec:
             - name: peanut
               image: hedche/peanut:latest
               imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
               command:
                 - python
                 - -m
@@ -52,6 +90,9 @@ spec:
                     name: peanut-config
                 - secretRef:
                     name: peanut-secrets
+              env:
+                - name: HOME
+                  value: /tmp
               volumeMounts:
                 - name: memory
                   mountPath: /data
