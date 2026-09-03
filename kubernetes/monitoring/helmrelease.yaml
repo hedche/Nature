@@ -116,10 +116,27 @@ spec:
               password:
                 name: grafana-cloud-credentials
                 key: prometheus-token
+            # Tuned against a real 429 from Grafana Cloud:
+            #   the tenant exceeded the request rate limit, set to 75 requests/s
+            #   across all distributors with a maximum allowed burst of 750
+            #   (err-mimir-tenant-max-request-rate)
+            # The limit is on REQUESTS, not samples, so the fix is fewer and
+            # bigger requests: larger batches, fewer shards. 2,176 of the first
+            # 11,908 samples were rejected before this.
             queueConfig:
-              capacity: 5000
-              maxShards: 4
-              maxSamplesPerSend: 1000
+              capacity: 10000
+              minShards: 1
+              maxShards: 3
+              maxSamplesPerSend: 2000
+              batchSendDeadline: 10s
+              minBackoff: 250ms
+              maxBackoff: 30s
+            # Metadata is a separate request stream and tried to ship 1,586
+            # entries in one go, 429ing on its own. Nothing here alerts on metric
+            # metadata (help/type strings), so it is pure cost against both the
+            # rate limit and the series cap.
+            metadataConfig:
+              send: false
             writeRelabelConfigs:
               # 1. Allow-list by metric name. Anything not listed is dropped before
               #    it leaves the cluster, so it never counts against the cap.
