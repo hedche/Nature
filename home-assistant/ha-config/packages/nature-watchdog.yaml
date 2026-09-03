@@ -9,8 +9,10 @@
 # Assistant runs on separate hardware, on the same LAN, with phone push already
 # working — so it is the one observer that survives the whole cluster going away.
 #
-# Replace notify.mobile_app_REPLACE_ME with your actual companion-app entity.
-# Find it with: Developer Tools -> Actions -> search "notify".
+# Notifications target notify.household — the group defined in
+# /config/configuration.yaml (currently mobile_app_iphone_16_pro +
+# mobile_app_ipad_pro). That file's own comment says to target the group rather
+# than a device, so a newly added phone is picked up by every automation.
 
 command_line:
   # HA removed the `ping` binary_sensor YAML platform (it is config-flow only
@@ -113,7 +115,7 @@ automation:
         to: "on"
         for: "00:01:00"
     actions:
-      - action: notify.mobile_app_REPLACE_ME
+      - action: notify.household
         data:
           title: "Cluster monitoring silent"
           message: >-
@@ -135,7 +137,7 @@ automation:
         to: "off"
         for: "00:03:00"
     actions:
-      - action: notify.mobile_app_REPLACE_ME
+      - action: notify.household
         data:
           title: "All 4 cluster nodes unreachable"
           message: >-
@@ -162,7 +164,7 @@ automation:
         entity_id: binary_sensor.snap_node_up
         state: "on"
     actions:
-      - action: notify.mobile_app_REPLACE_ME
+      - action: notify.household
         data:
           title: "cereal (control plane) is down"
           message: >-
@@ -183,7 +185,7 @@ automation:
         entity_id: binary_sensor.cereal_node_up
         state: "on"
     actions:
-      - action: notify.mobile_app_REPLACE_ME
+      - action: notify.household
         data:
           title: "Kubernetes API server not answering"
           message: >-
@@ -213,7 +215,7 @@ automation:
           summary: >-
             {{ trigger.json.alerts[0].annotations.summary
                | default('No summary provided') }}
-      - action: notify.mobile_app_REPLACE_ME
+      - action: notify.household
         data:
           title: "[{{ status | upper }}] {{ name }}"
           message: "{{ summary }}"

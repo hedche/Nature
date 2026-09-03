@@ -297,8 +297,10 @@ silence the `Watchdog` alert in Alertmanager — doing so disables the dead-man'
 
 Deployed by `./deploy.sh` along with the other packages. Two things to do once:
 
-1. Replace every `notify.mobile_app_REPLACE_ME` with your companion-app entity
-   (Developer Tools → Actions → search "notify").
+1. Confirm `notify.household` resolves — it is the notify group defined in
+   `/config/configuration.yaml`, so a newly added phone is picked up by every
+   automation without touching this package. To target something else, change it
+   in `packages/nature-watchdog.yaml` (Developer Tools → Actions → search "notify").
 2. Prove the dead-man's switch actually fires rather than assuming it does:
    ```sh
    export KUBECONFIG=talos/kubeconfig
