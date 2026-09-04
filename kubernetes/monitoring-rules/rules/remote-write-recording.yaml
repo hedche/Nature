@@ -59,3 +59,33 @@ spec:
         # thresholded below 1.
         - record: nature:cluster_heartbeat
           expr: vector(1)
+
+        # The out-of-band half of PeanutBriefingSilent (nature-peanut.yaml). That
+        # rule evaluates INSIDE the cluster, so it only covers "cluster alive,
+        # briefing broken" — a dead cereal takes the alert down with it. The
+        # briefing is the one workload that fails without telling anyone (run.py
+        # logs the traceback and exits 1; a Trello list rename on ~2026-07-30
+        # broke every run and went unnoticed for 33 days), so it gets a second,
+        # off-site pair of eyes. Consumed by PeanutBriefingSilentCloud in
+        # ../../../grafana/rules.tf — do not remove or rename without updating
+        # that rule, which would otherwise page permanently via its vector(0)
+        # fallback.
+        #
+        # Why record it rather than allow-list it: kube_cronjob_status_last_
+        # successful_time is not in the remote_write allow-list, and that
+        # allow-list is a single 67-term regex with a documented history of
+        # SILENT breakage (a stray space once made 28 of the 67 unmatchable,
+        # including node_power_supply_online). Publishing under `nature:` ships
+        # it via the existing `nature:.*` term without touching that regex.
+        #
+        # The max() is MANDATORY, not tidiness. The raw metric carries
+        # kube-state-metrics' pod/instance labels, and the cloud rule reads it
+        # through max_over_time(...[30h]), which resurrects dead series for a
+        # full 30h. Measured 2026-09-04: kube-state-metrics had been rescheduled
+        # 42h earlier and the un-aggregated form still returned the dead pod's
+        # series, climbing to 39.6h old and sitting above the 26h cloud threshold
+        # for 163 consecutive 5-minute samples — 13.6h of false CRITICAL paging
+        # while the briefing ran perfectly every morning. Do not "simplify" this
+        # back to the raw metric.
+        - record: nature:peanut_briefing_last_success_timestamp_seconds
+          expr: max(kube_cronjob_status_last_successful_time{cronjob="peanut-daily-briefing"})
