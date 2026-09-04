@@ -1,0 +1,48 @@
+# Re-subscribe the bedroom ESPHome panel to HA state after a Core restart.
+#
+# Why: the panel's `homeassistant` text sensors subscribe to entity states when
+# the API connection comes up, and HA sends the initial state only for entities
+# that ALREADY exist at that moment (esphome/manager.py returns early when
+# hass.states.get() is None, and drops the later old_state=None creation event
+# too). The ESPHome integration sets the panel up early; ZHA takes another ~10s
+# to bring its radio up and add the Zigbee plugs. So after every restart the
+# Kitchen Lamp / Bookshelf Lamp tiles sit greyed-out "Unavailable" until someone
+# toggles the lamp — HA itself reports the switch as a plain "off" throughout.
+# Seen 2026-08-30 and again 2026-09-04 (the 2026.9.0 upgrade restart), with the
+# same ~10s gap between switch.bedroom_panel_* and switch.kitchen_lamp appearing.
+#
+# Fix: once the four tile entities all exist, reload the panel's ESPHome config
+# entry. That drops and re-establishes the API connection, the panel re-sends
+# its subscriptions, and this time HA has states to hand back. Manual
+# equivalent: Settings → Devices → Bedroom Panel → ⋮ → Reload.
+automation:
+  - id: bedroom_panel_resubscribe_after_start
+    alias: "Bedroom Panel: re-subscribe to states after HA start"
+    description: >-
+      Reloads the Bedroom Panel ESPHome entry once ZHA has created the lamp
+      switches, so the lights-page tiles do not stick on Unavailable.
+    mode: single
+    triggers:
+      - trigger: homeassistant
+        event: start
+    actions:
+      # Wait for the tile entities (the ZHA ones are the slow ones) rather than
+      # a fixed delay: a fixed delay is either too short on a slow boot or
+      # needlessly long. Keep this list in step with light_N_entity in
+      # home-assistant/esphome/bedroom-panel.yaml.
+      - wait_template: >-
+          {{ states('switch.kitchen_lamp') not in ['unknown', 'unavailable']
+             and states('switch.living_room_bookshelf_lamp') not in ['unknown', 'unavailable']
+             and states('switch.smarthutplug_dbeb24_plug') not in ['unknown', 'unavailable']
+             and states('switch.smarthutplug_ded8f4_plug') not in ['unknown', 'unavailable'] }}
+        timeout: "00:05:00"
+        # If something never comes up, reload anyway — the tiles for whatever
+        # DID load are then correct, and the missing one is honestly
+        # unavailable rather than starved.
+        continue_on_timeout: true
+      # Let the panel itself finish (re)connecting after the restart before we
+      # yank the connection out from under it.
+      - delay: "00:00:15"
+      - action: homeassistant.reload_config_entry
+        target:
+          entity_id: light.bedroom_panel_backlight

@@ -16,6 +16,8 @@ esphome/                  ESPHome device configs, built/flashed from the Mac
 ha-config/
   packages/               HA config packages deployed to /config/packages/
     bedroom_alarm.yaml    Bedroom 08:50 one-shot alarm (button 2 + Sonos)
+    bedroom_panel_resubscribe.yaml
+                          Reload the panel's ESPHome entry after HA start (ZHA race)
     nature_panel.yaml     Template sensors feeding the bedroom panel
     sleep_sounds.yaml     Bedroom pink-noise / handpan automations
   deploy.sh               scp package(s) to hassio + ha core check/restart
