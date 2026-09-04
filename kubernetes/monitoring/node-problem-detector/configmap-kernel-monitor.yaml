@@ -11,6 +11,27 @@ data:
   # messages AND Talos service logs (`[talos] …` at user.warning) from one ring
   # buffer. So a single /dev/kmsg reader sees both the DMAR faults and the Talos
   # block-controller lock loop — no Talos API credential needed in-cluster.
+  #
+  # BlockDeviceLockLoop is `temporary`, NOT `permanent`, and that is deliberate.
+  # Talos logs "failed to lock device, retrying later" once per worker during
+  # normal boot — it retries and succeeds — so as a permanent rule it latched a
+  # node condition that never clears. Measured 2026-09-04: BlockDeviceLockLoop
+  # was True on 3 of 4 nodes (pop and snap for two days) while every one of them
+  # was perfectly healthy, all reporting the same benign message on sda. A
+  # condition that is True on healthy nodes carries no information, and it cost
+  # a real misdiagnosis: crackle's outage was blamed on it when the eviction was
+  # actually the standard node.kubernetes.io/unreachable taint.
+  #
+  # The pathological signal is the LOOP, not one line, and a permanent rule
+  # cannot express "N times" — it latches on first match. A temporary rule
+  # increments problem_counter per occurrence, which is what the
+  # BlockDeviceLockLoop alert already keys off (increase[5m] > 5), so a genuine
+  # retry storm still pages while a single boot-time retry does not.
+  #
+  # Verified before changing it: problem_counter carries series for reasons that
+  # exist ONLY as temporary rules here (OOMKilling, TaskHung, KernelOops,
+  # EXT4Error, IOError, NVMeControllerReset), so the metric the alert depends on
+  # survives the switch. problem_gauge only ever carried the permanent types.
   kernel-monitor.json: |
     {
       "plugin": "kmsg",
@@ -24,11 +45,6 @@ data:
           "type": "NVMeDMAFault",
           "reason": "NoNVMeDMAFaults",
           "message": "No NVMe DMA faults detected"
-        },
-        {
-          "type": "BlockDeviceLockLoop",
-          "reason": "NoBlockDeviceLockLoop",
-          "message": "No block device lock retry loop detected"
         },
         {
           "type": "KernelDeadlock",
@@ -49,8 +65,7 @@ data:
           "pattern": "DMAR:.*fault.*"
         },
         {
-          "type": "permanent",
-          "condition": "BlockDeviceLockLoop",
+          "type": "temporary",
           "reason": "BlockDeviceLockLoop",
           "pattern": ".*failed to lock device.*"
         },

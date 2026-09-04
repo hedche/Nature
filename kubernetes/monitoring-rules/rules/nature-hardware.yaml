@@ -37,6 +37,14 @@ spec:
               NVMe. If this recurs on the same drive, reseat or replace it
               (crackle: Micron 2200S 256GB) or check for a firmware update.
 
+        # ONE occurrence is normal. Talos logs "failed to lock device, retrying
+        # later" once per worker at boot and then succeeds, so the rule in
+        # ../../monitoring/node-problem-detector/ is `temporary`, not `permanent`
+        # — it counts occurrences instead of latching a node condition that never
+        # clears. The threshold below is what separates a real retry storm from
+        # that benign single line. There is deliberately no
+        # kube_node_status_condition{condition="BlockDeviceLockLoop"} any more;
+        # it read True on 3 of 4 healthy nodes and meant nothing.
         - alert: BlockDeviceLockLoop
           expr: increase(problem_counter{reason="BlockDeviceLockLoop"}[5m]) > 5
           for: 1m
@@ -45,24 +53,27 @@ spec:
           annotations:
             summary: "Talos block controller cannot lock a device on {{ $labels.instance }}"
             description: >-
-              CHECK WHICH DEVICE FIRST — this does NOT imply the NVMe. Read it from
-              the node condition, which carries the raw kmsg line:
-              kubectl get node {{ $labels.instance }} -o jsonpath=
-              '{.status.conditions[?(@.type=="BlockDeviceLockLoop")].message}'
-              On 2026-09-02 this fired on crackle for id "sda" — the Ceph OSD SATA
-              SSD at pci-0000:00:17.0-ata-1 — with NVMeDMAFault=False throughout.
-              So it is NOT only the tail of a DMAR storm, and reseating the NVMe
-              would have been the wrong drive. If NVMeDMAFaultStorm is also firing,
-              follow that alert instead. If it is not, treat this as the named
-              device failing on its own.
-              Consequence either way: node-problem-detector latches this as a
-              PERMANENT condition (it does not self-clear — only an NPD restart or
-              a reboot resets it), a NoExecute taint follows, and the taint manager
-              evicts pods. Any pod holding an RWO Ceph volume on that node then
-              hangs in Terminating because the kubelet cannot unmount it, stranding
-              the VolumeAttachment so no replacement pod can attach anywhere else.
-              On 2026-09-02 that took peanut down for ~3h and left radarr, prowlarr
-              and sonarr stuck alongside it.
+              CHECK WHICH DEVICE FIRST — this does NOT imply the NVMe. The rule is
+              temporary, so the raw kmsg line arrives as an Event rather than a node
+              condition:
+              kubectl get events -A --field-selector reason=BlockDeviceLockLoop --sort-by=.lastTimestamp
+              Events expire after about an hour, but this alert needs 5 occurrences
+              in 5 minutes to fire, so fresh ones will be present when it does.
+              On 2026-09-02 the underlying message appeared on crackle for id "sda"
+              — the Ceph OSD SATA SSD at pci-0000:00:17.0-ata-1 — with
+              NVMeDMAFault=False throughout, and the identical line was present on
+              pop and snap while both were perfectly healthy. So it is NOT the tail
+              of a DMAR storm by default, and reseating the NVMe would have been the
+              wrong drive. If NVMeDMAFaultStorm is also firing, follow that alert
+              instead; if it is not, treat the named device as failing on its own and
+              confirm with `ceph osd tree` / `ceph health detail` before pulling it.
+              Sustained failure to lock the OSD disk risks the node going NotReady,
+              at which point the standard node.kubernetes.io/unreachable NoExecute
+              taint evicts pods — and any pod holding an RWO Ceph volume there hangs
+              in Terminating because the kubelet cannot unmount it, stranding the
+              VolumeAttachment so no replacement can attach elsewhere. That shape
+              cost peanut ~3h on 2026-09-02, though the root cause of crackle going
+              unreachable that day was never established and was NOT this condition.
 
         # The consequence, caught independently of the cause. kubelet healthz binds
         # loopback only, so this can only be observed from on the node itself.
