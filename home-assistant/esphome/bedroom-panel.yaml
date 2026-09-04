@@ -90,9 +90,26 @@ ota:
 logger:
   level: INFO
 
+# The weather page's clock. HA supplies the epoch; the zone is pinned rather
+# than inherited from whichever machine ran the build. The clock reads --:--
+# until the first sync (ui_clock treats anything invalid as unknown), then
+# ticks on the minute from the ESP's own clock even while HA is away.
 time:
   - platform: homeassistant
     id: ha_time
+    timezone: Europe/London
+    on_time_sync:
+      - script.execute:
+          id: ui_clock
+          h: !lambda "return id(ha_time).now().hour;"
+          m: !lambda "return id(ha_time).now().minute;"
+    on_time:
+      - seconds: 0
+        then:
+          - script.execute:
+              id: ui_clock
+              h: !lambda "return id(ha_time).now().hour;"
+              m: !lambda "return id(ha_time).now().minute;"
 
 # Everything on the screen lives in the shared UI package, which the SDL
 # simulator (bedroom-panel-sim.yaml) includes too. This file is the hardware

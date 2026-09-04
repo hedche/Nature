@@ -17,7 +17,9 @@
 #              buttons call homeassistant.action, which does not exist
 #              without it (the error points at an LVGL button, not at the
 #              missing key)
-#   wires      its touchscreen triggers to touch_begin / touch_move / touch_end
+#   wires      its touchscreen triggers to touch_begin / touch_move / touch_end,
+#              and its own time source (HA on the panel, the host clock in the
+#              simulator) to ui_clock — once on sync and then every minute
 #   pushes     data in by calling the ui_* scripts below — nothing in here
 #              reads a sensor directly, which is exactly what lets the
 #              simulator drive the same UI with mock values
@@ -471,6 +473,26 @@ script:
       - lvgl.label.update:
           id: lbl_ip
           text: !lambda "return x;"
+  # Wall clock, top-right of the weather page. h/m are the local hour and
+  # minute; h < 0 means the includer has no valid time yet (the panel before
+  # HA's first sync), which draws --:-- rather than a confidently wrong
+  # 00:00. Rendered 12h with a small AM/PM so it reads the same as the alarm
+  # chip it shares the row with.
+  - id: ui_clock
+    parameters:
+      h: int
+      m: int
+    then:
+      - lambda: |-
+          if (h < 0 || h > 23 || m < 0 || m > 59) {
+            lv_label_set_text(id(lbl_clock), "--:--");
+            lv_label_set_text(id(lbl_clock_ampm), "");
+            return;
+          }
+          int h12 = h % 12;
+          if (h12 == 0) h12 = 12;
+          lv_label_set_text_fmt(id(lbl_clock), "%d:%02d", h12, m);
+          lv_label_set_text(id(lbl_clock_ampm), h >= 12 ? "PM" : "AM");
 
   # Alarm: HA sends the time as "HH:MM:SS" (24h); anything unparsable —
   # "unavailable", "unknown", a blank — renders as --:-- on both the chip and
@@ -632,6 +654,14 @@ font:
   - file: "gfonts://Roboto"
     id: font_tiny
     size: 20
+  # Weather-page clock. Bigger than the alarm chip's time on purpose — the
+  # current time is the thing read from across the room — and only the
+  # glyphs it can ever print, to keep the flash cost of a fourth Roboto
+  # size down.
+  - file: "gfonts://Roboto@500"
+    id: font_clock
+    size: 48
+    glyphs: ["0123456789:-"]
   - file: "fonts/materialdesignicons-webfont.ttf"
     id: mdi_42
     size: 42
@@ -875,6 +905,37 @@ lvgl:
                   y: -14
             on_click:
               - script.execute: tap_alarm_chip
+        # Clock, mirroring the alarm chip's box on the right. Deliberately no
+        # border or fill: the chip looks like a button because it is one, and
+        # this is a readout. ui_clock owns both strings.
+        - obj:
+            align: TOP_RIGHT
+            x: -16
+            y: 24
+            width: 160
+            height: 130
+            bg_opa: TRANSP
+            border_width: 0
+            pad_all: 0
+            scrollable: false
+            widgets:
+              - label:
+                  id: lbl_clock
+                  text: "--:--"
+                  text_font: font_clock
+                  text_color: 0xE0E0E0
+                  # Same row as the chip's time, so the two readouts line up.
+                  align: RIGHT_MID
+                  x: -16
+                  y: 0
+              - label:
+                  id: lbl_clock_ampm
+                  text: ""
+                  text_font: font_tiny
+                  text_color: 0x9AA0A8
+                  align: BOTTOM_RIGHT
+                  x: -16
+                  y: -10
         - label:
             id: lbl_weather_icon
             text: "\U000F0590"

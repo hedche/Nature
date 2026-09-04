@@ -21,6 +21,7 @@
 #   ./sim.sh shot lights.png -s sim_page lights_page -s sim_light_2 on
 #   ./sim.sh shot press.png  -s sim_page lights_page -s sim_pressed true
 #   ./sim.sh shot dead.png   -s sim_temp_min NAN     # what a dead HA sensor looks like
+#   ./sim.sh shot noon.png   -s sim_clock 12:00       # clock shows the Mac's time otherwise
 #
 # Passing a real (reachable) URL as sim_media_art is the only way to exercise
 # the album-art download and its JPEG->PNG fallback here; with the default
@@ -91,6 +92,10 @@ substitutions:
   # -s sim_page alarm_page
   sim_alarm_time: "07:30:00"
   sim_alarm_armed: "on"
+  # Clock. Empty = the Mac's own time, live, ticking on the minute like the
+  # panel; "HH:MM" (24h) pins it for a reproducible frame, or "unknown" for
+  # the --:-- the panel shows before HA's first time sync.
+  sim_clock: ""
 
 esphome:
   name: ${name}
@@ -177,6 +182,7 @@ esphome:
         - script.execute:
             id: ui_alarm_armed
             x: "${sim_alarm_armed}"
+        - script.execute: sim_clock_push
         # `-s sim_page alarm_page` shows the editor without going through
         # open_alarm, so set its global by hand — otherwise a swipe down in
         # the interactive window would not close it.
@@ -208,6 +214,33 @@ host:
 
 logger:
   level: INFO
+
+# Same trigger shape as the panel's HA time, driven by the host clock. The
+# push goes through one script so on_boot and the minute tick agree on how
+# sim_clock overrides it.
+time:
+  - platform: host
+    id: ha_time
+    timezone: Europe/London
+    on_time:
+      - seconds: 0
+        then:
+          - script.execute: sim_clock_push
+
+script:
+  - id: sim_clock_push
+    then:
+      - lambda: |-
+          const std::string pin = "${sim_clock}";
+          int h = -1, m = 0;
+          if (pin.empty()) {
+            auto now = id(ha_time).now();
+            if (now.is_valid()) { h = now.hour; m = now.minute; }
+          } else {
+            // Anything unparsable ("unknown") stays at -1 -> --:--.
+            if (sscanf(pin.c_str(), "%d:%d", &h, &m) != 2) h = -1;
+          }
+          id(ui_clock)->execute(h, m);
 
 # Only here so the media buttons' homeassistant.action calls compile. Nothing
 # is connected, so pressing them logs an error and does nothing.
