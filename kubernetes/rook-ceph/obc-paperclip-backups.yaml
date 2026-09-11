@@ -1,0 +1,16 @@
+# Bucket for the encrypted nightly snapshots of the Paperclip instance on
+# Monty's MacBook (github.com/Leafbit-Ltd/paperclip, backup/). Rook writes the
+# endpoint into a ConfigMap and the access keys into a Secret, both named
+# paperclip-backups in this namespace; backup/setup.sh over there reads them.
+#
+# The StorageClass is Retain, so deleting this claim leaves the bucket and its
+# objects behind. Retention is the client's job: the backup script prunes
+# objects older than its window.
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: paperclip-backups
+  namespace: rook-ceph
+spec:
+  bucketName: paperclip-backups
+  storageClassName: ceph-bucket
