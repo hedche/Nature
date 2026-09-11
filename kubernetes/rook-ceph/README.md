@@ -21,6 +21,7 @@ it does not get its own disks.
 | | |
 |---|---|
 | Endpoint (in-cluster) | `http://rook-ceph-rgw-ceph-objectstore.rook-ceph.svc:80` |
+| Endpoint (tailnet) | `https://s3.<tailnet>.ts.net` via `ingress-rgw.yaml` (Tailscale operator, TLS from ts.net) |
 | StorageClass for buckets | `ceph-bucket` (`reclaimPolicy: Retain`) |
 | Addressing | **path-style** — a `ts.net` name cannot carry the `*.s3.…` wildcard virtual-host style needs |
 
@@ -30,7 +31,25 @@ gets `min_size = k+1 = 3`, so a single node reboot would block all object I/O; r
 `mon_max_pg_per_osd` budget.
 
 Provision a bucket by creating an ObjectBucketClaim against `ceph-bucket`; Rook writes the endpoint and
-credentials into a ConfigMap and Secret of the same name as the claim.
+credentials into a ConfigMap and Secret of the same name as the claim. Claims live in this directory
+(`obc-*.yaml`) so a wipe and re-bootstrap recreates them; the Retain class means the data behind a
+deleted claim survives until someone removes it with `radosgw-admin`.
+
+| Claim | Consumer |
+|---|---|
+| `paperclip-backups` | Nightly encrypted snapshots of the Paperclip instance on the MacBook, pushed over the tailnet endpoint by `backup/` in `Leafbit-Ltd/paperclip`. |
+
+Read a claim's credentials from outside the cluster (the values are only ever needed on the client
+that owns the bucket; never paste them into this repo):
+
+```sh
+kubectl --namespace rook-ceph get configmap paperclip-backups -o jsonpath='{.data.BUCKET_NAME}'
+kubectl --namespace rook-ceph get secret paperclip-backups -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d
+kubectl --namespace rook-ceph get secret paperclip-backups -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d
+```
+
+The ConfigMap's `BUCKET_HOST` is the in-cluster service name. From the tailnet use
+`https://s3.<tailnet>.ts.net` with path-style addressing instead; the same keys work on both.
 
 ```sh
 kubectl --namespace rook-ceph get cephobjectstore ceph-objectstore

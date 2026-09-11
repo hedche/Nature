@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rgw
+  namespace: rook-ceph
+  labels:
+    app.kubernetes.io/name: rook-ceph-rgw
+    app.kubernetes.io/part-of: rook-ceph
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: rook-ceph-rgw-ceph-objectstore
+      port:
+        number: 80
+  tls:
+    - hosts:
+        # Becomes the tailnet machine name: https://s3.<tailnet>.ts.net
+        # Every request must carry a valid SigV4 signature for a bucket key
+        # (see the ObjectBucketClaims), so the tailnet ACL is the network
+        # boundary and S3 auth is the application one. Path-style only —
+        # a ts.net name cannot carry the *.s3.… wildcard virtual-host
+        # addressing needs. Never expose through cloudflared.
+        - s3
