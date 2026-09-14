@@ -82,7 +82,7 @@ services:
             start_period: 60s
 
     plex:
-        image: lscr.io/linuxserver/plex:1.43.2.10687-563d026ea-ls312
+        image: lscr.io/linuxserver/plex:1.43.4.10903-e5521bd8c-ls324
         container_name: plex
         restart: unless-stopped
         # Host networking on purpose: it is Plex's recommended mode (DLNA/GDM
