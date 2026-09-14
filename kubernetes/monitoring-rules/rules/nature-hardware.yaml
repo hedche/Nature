@@ -21,21 +21,31 @@ spec:
         # Observed behaviour is zero-to-storm: ~250 faults/sec when failing, exactly
         # zero when healthy. There is no gradual ramp, so any sustained non-zero
         # rate is actionable; the threshold only tolerates a one-off.
+        #
+        # This counts NVMeDMAFaultEvent — the `temporary` NPD rule — and NOT
+        # NVMeDMAFault. A permanent rule bumps problem_counter only when its
+        # condition flips, so reason="NVMeDMAFault" reads 1 for the life of the NPD
+        # pod and `increase > 10` can never be true. It wasn't: on 2026-09-14
+        # crackle stormed for hours with that counter at 1 and this alert silent.
+        # The kernel rate-limits DMAR lines ("N callbacks suppressed"), so NPD sees
+        # ~7 per 5s during a storm — ~400 per window, still far above 10.
         - alert: NVMeDMAFaultStorm
-          expr: increase(problem_counter{reason="NVMeDMAFault"}[5m]) > 10
+          expr: increase(problem_counter{reason="NVMeDMAFaultEvent"}[5m]) > 10
           for: 1m
           labels:
             severity: critical
           annotations:
             summary: "NVMe DMA fault storm on {{ $labels.instance }} — node will wedge"
             description: >-
-              IOMMU DMAR faults from the NVMe controller. The node is minutes away
-              from a hung kubelet. GO STRAIGHT TO A PHYSICAL POWER-CYCLE — on
-              2026-07-24 `talosctl reboot`, `talosctl reboot -e` and
+              IOMMU DMAR faults from the NVMe controller. Anything on the system disk
+              is stalled — on 2026-09-14 the Ceph mon on crackle crashed 4s in — and
+              in July the kubelet hung for nine days. GO STRAIGHT TO A PHYSICAL
+              POWER-CYCLE — on 2026-07-24 `talosctl reboot`, `talosctl reboot -e` and
               `--mode powercycle` were all accepted and then silently ignored,
               because the graceful shutdown sequencer wedges on the same stuck
-              NVMe. If this recurs on the same drive, reseat or replace it
-              (crackle: Micron 2200S 256GB) or check for a firmware update.
+              NVMe. This drive has now failed this way twice (2026-07-18,
+              2026-09-14): replace it (crackle: Micron 2200S 256GB, serial
+              200225D26EA0) or check for a firmware update.
 
         # ONE occurrence is normal. Talos logs "failed to lock device, retrying
         # later" once per worker at boot and then succeeds, so the rule in

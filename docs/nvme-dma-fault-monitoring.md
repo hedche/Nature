@@ -62,10 +62,37 @@ then silently ignored — `talosctl reboot`, `talosctl reboot -e <ip>`, and
 The graceful shutdown sequencer wedges on the same stuck NVMe.
 
 If it recurs on the same drive: reseat or replace the Micron 2200S, or check for a
-firmware update.
+firmware update. **It has recurred — see below. Replacement is now due.**
 
 ## Caveat
 
 The 2026-07-27 boot was clean — no DMAR faults, no lock loop. This monitoring is for
 recurrence; there is currently nothing to observe, so **generate a synthetic match to test
 the alert path** rather than waiting for a real event.
+
+## Recurrence — 2026-09-14
+
+Same drive, same fault line (`[01:00.0] ... fault reason 0x06`), after ~10 days of clean
+uptime. Timeline (UTC):
+
+| time | event |
+|---|---|
+| 06:48:15 | NPD sets `NVMeDMAFault=True` on crackle |
+| 06:48:19 | `mon.d` crashes — its data is under `/var/lib/rook` on the NVMe `EPHEMERAL` partition; the pod then hangs in Terminating (container kill times out) |
+| 06:57:47 | `CephMonQuorumAtRisk` (2/3 mons); later `KubePdbNotEnoughHealthyPods` (mon PDB) and `CephHealthWarning` |
+| 08:19 | still storming: ~1283 callbacks suppressed per 5s, `nvme nvme0: Identify namespace failed (-5)` every 30s. Node still Ready, kubelet healthz OK, osd.0 up (it is on the SATA `sda`, not the NVMe) |
+| ~12:25 | physical power-cycle; Ready 12:25:54, zero DMAR faults since boot; Rook replaced `mon-d` with `mon-e` |
+
+Differences from July: the kubelet did **not** wedge (at least 90 min in), so the node never
+went NotReady — the only pages were Ceph symptoms of the stuck mon.
+
+**`NVMeDMAFaultStorm` did not fire.** It keyed on `problem_counter{reason="NVMeDMAFault"}`,
+which comes from a `permanent` NPD rule. Permanent rules increment the counter only when the
+condition changes, so it read `1` for the whole storm and `increase[5m] > 10` was
+unreachable. The synthetic test above only ever checked the condition, so it never caught
+this. Fix: a second, `temporary` rule on the same pattern (`NVMeDMAFaultEvent`) counts every
+matching line, and the alert keys off that. The permanent condition is kept for the
+out-of-band Grafana Cloud alert.
+
+After the power-cycle, Ceph keeps `RECENT_CRASH` (and so `CephHealthWarning`) for two weeks
+unless the crash is acknowledged with `ceph crash archive-all` from the toolbox.

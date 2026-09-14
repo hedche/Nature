@@ -32,6 +32,17 @@ data:
   # exist ONLY as temporary rules here (OOMKilling, TaskHung, KernelOops,
   # EXT4Error, IOError, NVMeControllerReset), so the metric the alert depends on
   # survives the switch. problem_gauge only ever carried the permanent types.
+  #
+  # The DMAR pattern has TWO rules, and both are needed. NPD runs every rule
+  # against every line (parseLog in pkg/systemlogmonitor/log_monitor.go), so one
+  # fault line hits both. The permanent NVMeDMAFault latches the node condition
+  # that Grafana Cloud's NVMeDMAFaultCloud reads. But a permanent rule bumps
+  # problem_counter only when its condition flips — through the 2026-09-14 storm
+  # on crackle it read 1 for hours — so the NVMeDMAFaultStorm alert counts the
+  # temporary NVMeDMAFaultEvent instead, which increments per line.
+  #
+  # NPD reads this file only at startup. Bump the config-revision annotation in
+  # daemonset.yaml with any change here, or the pods keep the old rules.
   kernel-monitor.json: |
     {
       "plugin": "kmsg",
@@ -62,6 +73,11 @@ data:
           "type": "permanent",
           "condition": "NVMeDMAFault",
           "reason": "NVMeDMAFault",
+          "pattern": "DMAR:.*fault.*"
+        },
+        {
+          "type": "temporary",
+          "reason": "NVMeDMAFaultEvent",
           "pattern": "DMAR:.*fault.*"
         },
         {

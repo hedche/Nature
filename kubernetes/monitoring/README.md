@@ -90,7 +90,11 @@ kubectl -n monitoring debug node/crackle -it --image=busybox --profile=sysadmin 
 kubectl get node crackle -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}'
 ```
 
-Expect `NVMeDMAFault=True` and a Telegram message. Clearing it needs an NPD restart
+Expect `NVMeDMAFault=True`, a Telegram message, and `NVMeDMAFaultStorm` firing within a
+couple of minutes (15 lines clears its threshold of 10). **Check the alert, not just the
+condition:** until 2026-09-14 the alert counted the permanent rule, whose counter never
+passes 1, so a real storm went unpaged while this test still looked green. It now counts the
+temporary `NVMeDMAFaultEvent` rule. Clearing the condition needs an NPD restart
 (permanent conditions do not self-reset):
 `kubectl -n monitoring rollout restart daemonset/node-problem-detector`.
 

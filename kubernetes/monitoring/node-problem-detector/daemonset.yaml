@@ -17,6 +17,11 @@ spec:
       labels:
         app.kubernetes.io/name: node-problem-detector
         app.kubernetes.io/part-of: monitoring
+      # NPD reads its ConfigMaps only at startup, and a ConfigMap change alone does
+      # not restart pods. Bump this with any configmap-*.yaml change so Flux rolls
+      # the DaemonSet onto the new rules.
+      annotations:
+        nature/config-revision: "2026-09-14"
     spec:
       serviceAccountName: node-problem-detector
       # kubelet healthz binds 127.0.0.1:10248, so the check has to share the
