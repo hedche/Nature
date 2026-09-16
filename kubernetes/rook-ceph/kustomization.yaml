@@ -6,5 +6,6 @@ resources:
   - operator-helmrelease.yaml
   - cluster-helmrelease.yaml
   - ingress-rgw.yaml
+  - obc-leafbit-archive.yaml
   - obc-paperclip-backups.yaml
 

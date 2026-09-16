@@ -1,0 +1,16 @@
+# Bucket for final archives of retired Leafbit services (database dumps and
+# the like), one prefix per service. Written by hand from the MacBook over the
+# tailnet endpoint when a service is shut down; nothing prunes it. Rook writes
+# the endpoint into a ConfigMap and the access keys into a Secret, both named
+# leafbit-archive in this namespace.
+#
+# The StorageClass is Retain, so deleting this claim leaves the bucket and its
+# objects behind.
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: leafbit-archive
+  namespace: rook-ceph
+spec:
+  bucketName: leafbit-archive
+  storageClassName: ceph-bucket

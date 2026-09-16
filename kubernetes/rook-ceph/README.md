@@ -37,6 +37,7 @@ deleted claim survives until someone removes it with `radosgw-admin`.
 
 | Claim | Consumer |
 |---|---|
+| `leafbit-archive` | Final archives of retired Leafbit services, one prefix per service, uploaded by hand from the MacBook over the tailnet endpoint. Nothing prunes it. |
 | `paperclip-backups` | Nightly encrypted snapshots of the Paperclip instance on the MacBook, pushed over the tailnet endpoint by `backup/` in `Leafbit-Ltd/paperclip`. |
 
 Read a claim's credentials from outside the cluster (the values are only ever needed on the client
