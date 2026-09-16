@@ -15,7 +15,7 @@ images:
   - name: lscr.io/linuxserver/radarr
     newTag: 6.4.4.10685-ls317 # {"$imagepolicy": "flux-system:radarr:tag"}
   - name: lscr.io/linuxserver/prowlarr
-    newTag: 2.5.2.5491-ls160 # {"$imagepolicy": "flux-system:prowlarr:tag"}
+    newTag: 2.6.5.5623-ls161 # {"$imagepolicy": "flux-system:prowlarr:tag"}
   - name: ghcr.io/flaresolverr/flaresolverr
     newTag: v3.5.2 # {"$imagepolicy": "flux-system:flaresolverr:tag"}
   - name: ghcr.io/manimatter/decluttarr
