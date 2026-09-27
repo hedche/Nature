@@ -96,3 +96,33 @@ out-of-band Grafana Cloud alert.
 
 After the power-cycle, Ceph keeps `RECENT_CRASH` (and so `CephHealthWarning`) for two weeks
 unless the crash is acknowledged with `ceph crash archive-all` from the toolbox.
+
+## Recurrence — 2026-09-27 (third occurrence; the alert worked)
+
+**`NVMeDMAFaultStorm` fired at 05:28:04Z**, 72s after the first fault — the first time the
+drive itself paged rather than only the Ceph fallout. Telegram delivered it (141 notifications
+sent, 0 failed). The 2026-09-14 fix is confirmed working end to end.
+
+Timeline (UTC): 05:26:52 `mon.f` crashed writing to its store on the NVMe (same
+`failed to write to db` abort as `mon.d` on 09-14, pod again unkillable in Terminating) →
+05:28:04 alert fired → 05:30 all writes to nvme0n1 stopped → by 09:59 still storming at
+~420 faults per 5m (22,813 counted), with the Cilium agent now failing its liveness probe.
+Node stayed `Ready` and `talosctl services` reported every service including kubelet as
+`Running OK` — the same false reassurance as July. Ceph held at 2/3 mons and 3/3 OSDs
+(osd.0 is on the SATA disk), 97/97 pgs clean, but Rook could not start a replacement mon
+because the stuck pod holds crackle's slot under mon anti-affinity.
+
+**A reseat on 2026-09-16 did not fix it** (drive out, connector and screw checked, no heatsink
+fitted — the OptiPlex 7060 Micro has no airflow over the M.2 slot). Ruled out again: heat
+(flat 44-46 °C for hours before onset), load (normal ~1 MiB/s writes, then zero), and any
+SMART poller (nothing reads it; Ceph's device-health only covers the SATA OSDs).
+
+**Time-to-failure is strikingly consistent:** 9.7 days of uptime before the 09-14 storm,
+10.7 days before this one. The fault address differs each time (`0x7d2da000` then
+`0xfaf44000`), consistent with the controller retrying a stale DMA pointer.
+
+**Conclusion: replace the drive.** Three failures on one unit, on Dell's latest firmware
+(22001070), while the identical model+firmware in `snap` (same chassis, same BIOS, same
+ASPM/APST settings) has never faulted once. Firmware and BIOS are both current, so there is
+nothing left to update. Warranty is unlikely: it is a Dell OEM part (Micron defers to the
+system maker), the drive was built 2020 week 02, and the chassis shipped with 3 years cover.
