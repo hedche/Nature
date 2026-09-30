@@ -19,4 +19,4 @@ images:
   - name: ghcr.io/flaresolverr/flaresolverr
     newTag: v3.5.2 # {"$imagepolicy": "flux-system:flaresolverr:tag"}
   - name: ghcr.io/manimatter/decluttarr
-    newTag: v2.1.0 # {"$imagepolicy": "flux-system:decluttarr:tag"}
+    newTag: v2.2.0 # {"$imagepolicy": "flux-system:decluttarr:tag"}
