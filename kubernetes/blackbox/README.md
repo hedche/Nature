@@ -10,14 +10,14 @@ Deployed into the `monitoring` namespace (which is already PSA privileged — IC
 | `10.30.1.57` | hermes — NFS server the whole media stack mounts |
 | `10.30.1.60` | hassio — the LAN-side watchdog; if it is down, that vantage point is blind |
 | `10.30.1.20` | qnap |
-| `10.30.1.21` | arctic — **still behind the garage powerline**, so it is the canary for that link |
+| `10.30.1.21` | arctic — WD MyCloud NAS (NFS exports) |
 | `1.1.1.1`, `8.8.8.8` | WAN |
 
-The cluster itself moved indoors on 2026-07-25 and no longer crosses the powerline, but
-arctic still does. That link is a red-LED Netgear PL1000 (under 50 Mbps link rate) which
-degrades under load and does not recover on its own — `PowerlineLinkDegraded` catches the
-RTT climbing before it becomes an outage. Remedy is to power-cycle both adapters for ~10s
-to force a retrain. Do not benchmark it with large transfers.
+The cluster moved indoors on 2026-07-25 and arctic followed on 2026-10-01, so nothing
+crosses the garage powerline link any more (it used to be a red-LED Netgear PL1000, under
+50 Mbps, that degraded under load). arctic is now a normal GbE LAN host answering in a few
+ms; `ArcticLatencyHigh` warns if its RTT climbs past 100ms, which on GbE means the NAS
+itself is struggling rather than a slow link.
 
 Alerts live in `rules.yaml`; `probe_success` and `probe_duration_seconds` are in the
 remote_write allow-list, so these also reach Grafana Cloud.

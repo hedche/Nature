@@ -9,6 +9,7 @@ secrets.yaml
 secrets.yaml.age
 secrets.env
 secrets/
+arctic-pass
 *.key
 *.pem
 *.p12

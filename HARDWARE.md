@@ -102,6 +102,36 @@ is easy and worth doing before you walk over there:
 
 Serves PXE boot, NFS storage, and Docker containers. See `pxe/README.md`.
 
+### arctic — WD MyCloud NAS (10.30.1.21)
+
+Single-bay WD My Cloud. Moved indoors onto the main LAN on 2026-10-01 (previously in
+the garage behind a red-LED Netgear PL1000 powerline link). Serves NFS exports under
+`/nfs/*`. Stats below read live from the node on 2026-10-01.
+
+| Component | Detail |
+|-----------|--------|
+| **Model** | WD My Cloud (single-bay), firmware `04.06.00-111` |
+| **SoC** | Comcerto 2000 EVM — ARMv7 (Cortex-A9), 2 cores, `armv7l` |
+| **Kernel** | Linux 3.2.26 `#1 SMP Thu Jul 9 11:14:15 PDT 2015 wd-2.4-rel` |
+| **RAM** | 227 MB (`MemTotal` 232,320 kB) + 489 MB swap |
+| **NIC** | `eth0`, MAC `00:90:a9:40:28:bb`, 1 Gbps full duplex |
+| **Disk** | WDC WD20EFRX-68EUZN0 (WD Red) 2.00 TB — `/dev/sda`, serial `WD-WMC4M2153995` |
+| **Data volume** | `/dev/sda4` 1.8 TB ext, 63% used (1.1 TB used / 676 GB free), mounted at `/DataVolume` and exported as `/nfs/*` |
+| **System RAID** | `md1` raid1 across `sda1`+`sda2` (1.9 GB, `[UU]`) — OS partitions only |
+
+**SSH access.** Old OpenSSH: the daemon only offers an `ssh-rsa` host key and rejects
+ed25519 *user* keys, so key auth needs an RSA key. Login is `root`. Working client config:
+
+```
+Host arctic
+  HostName arctic.nature.lan
+  User root
+  IdentityFile ~/.ssh/arctic_rsa
+  IdentitiesOnly yes
+  HostKeyAlgorithms +ssh-rsa
+  PubkeyAcceptedAlgorithms +ssh-rsa
+```
+
 ### Raspberry Pi — Home Assistant
 
 Runs Home Assistant OS. See `home-assistant/README.md`.

@@ -294,7 +294,7 @@ spec:
           # If the gateway is gone, every probed host looks unreachable. Say it once.
           - source_matchers: [alertname = "GatewayUnreachable"]
             target_matchers:
-              - alertname=~"LanHostUnreachable|ProxmoxHostUnreachable|HomeAssistantUnreachable|PowerlineLinkDegraded|WanDown"
+              - alertname=~"LanHostUnreachable|ProxmoxHostUnreachable|HomeAssistantUnreachable|ArcticLatencyHigh|WanDown"
           # A host being down explains its own LanHostUnreachable twin.
           - source_matchers: [alertname = "ProxmoxHostUnreachable"]
             target_matchers: [alertname = "LanHostUnreachable"]

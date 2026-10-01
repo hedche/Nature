@@ -11,7 +11,7 @@ This directory contains Kubernetes manifests, Helm values, and Kustomize configu
 - `media/` — Sonarr/Radarr/Prowlarr, pointed at qBittorrent + NFS storage on the hermes VM (see `media/README.md`).
 - `monitoring/` — kube-prometheus-stack + node-problem-detector, remote_writing a filtered subset to Grafana Cloud (see `monitoring/README.md`).
 - `logging/` — Grafana Alloy shipping filtered pod logs to Grafana Cloud Loki.
-- `blackbox/` — ICMP probes for the LAN, the WAN, and the garage powerline link.
+- `blackbox/` — ICMP probes for the LAN and the WAN.
 - `notifications/` — Flux `Provider`/`Alert` routing reconciliation failures to Telegram.
 - `health/` — the one deliberately public endpoint, for Grafana Cloud Synthetics.
 
