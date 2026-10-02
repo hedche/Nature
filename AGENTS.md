@@ -17,7 +17,7 @@ This repository manages two GitOps Kubernetes clusters — the Talos homelab clu
   - **Talos Kubernetes cluster `cereal`** — control plane `cereal` (`10.30.1.50`), workers `snap`/`crackle`/`pop` (`10.30.1.51-.53`)
   - **K3s cluster `oracle`** — Oracle Cloud free-tier ARM, Terraform in `oracle/`
   - **Proxmox VE node `pve`** (`10.30.1.55`) — cloud-init Ubuntu VMs (`10.30.1.56-.59`) via Terraform in `proxmox/`; the `hermes` VM (`10.30.1.57`) runs the media stack deployed from `hermes/`
-  - QNAP NAS (`10.30.1.20`), WD MyCloud NAS `arctic` (`10.30.1.21`)
+  - QNAP NAS (`10.30.1.20`), WD MyCloud NAS `arctic` (`10.30.1.21`) — `arctic` runs an old sshd; SSH in as `root` with an RSA key, not ed25519 (see the "SSH access" note under arctic in `HARDWARE.md`)
   - Raspberry Pi `photon` — CUPS (`10.30.1.90`); Raspberry Pi `hassio` — Home Assistant (`10.30.1.60`)
 - **Deprecated**: anything in `deprecated/` is historical. Do not modify unless explicitly asked.
 
