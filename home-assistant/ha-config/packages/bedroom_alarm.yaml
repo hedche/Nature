@@ -15,7 +15,7 @@
 # Button map on the remote after this package:
 #   1  toggle Lydia's Light      (automations.yaml on hassio)
 #   2  arm / disarm this alarm   (here)
-#   3  free
+#   3  toggle the stair light    (stair_light.yaml)
 #   4  pink noise / handpan      (sleep_sounds.yaml)
 #
 # `device_id` is this instance's ZHA device for the remote, the same one

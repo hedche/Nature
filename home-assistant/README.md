@@ -20,6 +20,7 @@ ha-config/
                           Reload the panel's ESPHome entry after HA start (ZHA race)
     nature_panel.yaml     Template sensors feeding the bedroom panel
     sleep_sounds.yaml     Bedroom pink-noise / handpan automations
+    stair_light.yaml      Stair light: hall motion + button 3 toggle that holds it on
   deploy.sh               scp package(s) to hassio + ha core check/restart
 ```
 

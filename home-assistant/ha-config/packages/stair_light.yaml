@@ -1,0 +1,115 @@
+# Stair light: hall motion sensor after dark, plus a manual toggle from the
+# Zigbee TS0044 4-gang remote in the master bedroom (button 3, short press).
+# The light is a SmartHut plug — the same entity as the "Stair Light" tile on
+# the bedroom panel (home-assistant/esphome/bedroom-panel.yaml,
+# light_2_entity), so the tile follows the button and vice versa.
+#
+# The button wins over the motion sensor. Turning the light on from the
+# button sets input_boolean.stair_light_held, and while that is on the
+# motion sensor clearing does not switch the light off. The flag drops
+# whenever the light goes off by any route (button, panel tile, app), so the
+# next motion-lit trip is back to normal auto-off.
+#
+# The two motion automations were born in automations.yaml on hassio; their
+# `id:` values are kept so history and traces survive the move.
+#
+# `device_id` is this instance's ZHA device for the remote, the same one
+# bedroom_alarm.yaml and sleep_sounds.yaml use. The TS0044 exposes device
+# triggers only (no entities); re-pairing the remote means re-capturing it.
+# The full button map lives in the header of bedroom_alarm.yaml.
+
+input_boolean:
+  stair_light_held:
+    name: Stair Light Held by Button
+    icon: mdi:stairs
+
+automation:
+  - id: stair_light_button
+    alias: Stair light — toggle from button 3
+    description: >-
+      Master Bedroom Switch (TS0044) button 3 short press toggles the stair
+      light plug. Turning it on holds it on against the motion auto-off.
+    triggers:
+      - trigger: device
+        device_id: 03160cee1a84a1189791e4fdffa02762
+        domain: zha
+        type: remote_button_short_press
+        subtype: button_3
+    conditions: []
+    actions:
+      - choose:
+          - alias: Off — turn on and hold
+            conditions:
+              - condition: state
+                entity_id: switch.smarthutplug_ded8f4_plug
+                state: "off"
+            sequence:
+              # Flag first, so a motion-clear landing between the two
+              # actions cannot switch the light straight back off.
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.stair_light_held
+              - action: switch.turn_on
+                target:
+                  entity_id: switch.smarthutplug_ded8f4_plug
+        default:
+          # The release automation below drops the flag once it is off.
+          - action: switch.turn_off
+            target:
+              entity_id: switch.smarthutplug_ded8f4_plug
+    mode: single
+
+  - id: "1745949263547"
+    alias: Stair lighting
+    description: Hall motion after dark turns the stair light on.
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hall_motion_sensor_motion_2
+        to: "on"
+    conditions:
+      - condition: sun
+        before: sunrise
+        after: sunset
+    actions:
+      - action: switch.turn_on
+        target:
+          entity_id: switch.smarthutplug_ded8f4_plug
+    mode: single
+
+  - id: "1745958033536"
+    alias: Stair lights off
+    description: >-
+      Hall motion clearing turns the stair light off, unless button 3 is
+      holding it on.
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hall_motion_sensor_motion_2
+        to: "off"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.stair_light_held
+        state: "off"
+    actions:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.smarthutplug_ded8f4_plug
+    mode: single
+
+  - id: stair_light_release_hold
+    alias: Stair light — release the button hold when it goes off
+    description: >-
+      Clears input_boolean.stair_light_held whenever the stair light turns
+      off, whichever control turned it off.
+    triggers:
+      - trigger: state
+        entity_id: switch.smarthutplug_ded8f4_plug
+        to: "off"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.stair_light_held
+        state: "on"
+    actions:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.stair_light_held
+    mode: single
