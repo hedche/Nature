@@ -172,3 +172,31 @@ spec:
   update:
     path: ./kubernetes/media
     strategy: Setters
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: seerr
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: media
+spec:
+  image: ghcr.io/seerr-team/seerr
+  interval: 30m
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: seerr
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/part-of: media
+spec:
+  imageRepositoryRef:
+    name: seerr
+  filterTags:
+    # Plain vX.Y.Z release tags (excludes latest/develop/preview tags).
+    pattern: '^v\d+\.\d+\.\d+$'
+  policy:
+    semver:
+      range: '>=3.0.0'
