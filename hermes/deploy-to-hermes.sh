@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Idempotently deploy the Nature media stack (Gluetun + qBittorrent + Plex +
-# MeTube + File Browser) to the hermes VM.
+# Jellyfin + MeTube + File Browser) to the hermes VM.
 
 set -euo pipefail
 
@@ -145,7 +145,7 @@ BOOTSTRAP
         mkdir -p /mnt/data/torrents/tv /mnt/data/torrents/movies /mnt/data/torrents/incomplete
         mkdir -p /mnt/data/media/tv /mnt/data/media/movies
         mkdir -p /mnt/data/youtube
-        mkdir -p /home/ubuntu/appdata/gluetun /home/ubuntu/appdata/qbittorrent /home/ubuntu/appdata/plex /home/ubuntu/appdata/metube /home/ubuntu/appdata/filebrowser
+        mkdir -p /home/ubuntu/appdata/gluetun /home/ubuntu/appdata/qbittorrent /home/ubuntu/appdata/plex /home/ubuntu/appdata/jellyfin /home/ubuntu/appdata/metube /home/ubuntu/appdata/filebrowser
         mkdir -p '${HERMES_DIR}'
         touch '${HERMES_DIR}/.nature-hermes-managed'
     "
@@ -246,6 +246,7 @@ Media stack deployed.
 
 qBittorrent WebUI: http://10.30.1.57:8080
 Plex:              http://10.30.1.57:32400/web
+Jellyfin:          http://10.30.1.57:8096
 MeTube (yt-dlp):   http://10.30.1.57:8081
 File Browser:      http://10.30.1.57:8082 (youtube downloads; no auth, LAN/tailnet only)
 VPN HTTP proxy:    http://10.30.1.57:8888 (Prowlarr indexer proxy)

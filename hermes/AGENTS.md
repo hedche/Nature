@@ -1,8 +1,8 @@
 # hermes media stack — agent conventions
 
 - **This directory is the source of truth** for the Docker media stack on the hermes VM
-  (`ubuntu@10.30.1.57`): Gluetun (NordVPN WireGuard) + qBittorrent + Plex + MeTube +
-  File Browser. Deploy with
+  (`ubuntu@10.30.1.57`): Gluetun (NordVPN WireGuard) + qBittorrent + Plex + Jellyfin
+  (:8096, offline downloads to iOS) + MeTube + File Browser. Deploy with
   `./deploy-to-hermes.sh` (idempotent: bootstraps Docker, rsyncs, generates the remote
   `.env` from the `secrets.yaml`, `compose up`). Never `docker compose` by hand on
   the guest except for debugging; change the repo and redeploy.
