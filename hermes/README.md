@@ -4,7 +4,8 @@ Docker Compose stack on the `hermes` VM (`10.30.1.57`, provisioned by
 [`../proxmox/`](../proxmox/README.md)): [Gluetun](https://github.com/qdm12/gluetun)
 as a NordVPN WireGuard gateway with [qBittorrent](https://github.com/linuxserver/docker-qbittorrent)
 running entirely inside its network namespace, plus
-[Plex](https://github.com/linuxserver/docker-plex) for playback and
+[Plex](https://github.com/linuxserver/docker-plex) and
+[Jellyfin](https://github.com/linuxserver/docker-jellyfin) for playback and
 [MeTube](https://github.com/alexta69/metube) + [File Browser](https://github.com/filebrowser/filebrowser)
 for YouTube downloads (host-networked, outside the VPN). Desired state
 lives in this repo; hermes is only the Docker host (same philosophy as `../pxe/`).
@@ -14,6 +15,7 @@ lives in this repo; hermes is only the Docker host (same philosophy as `../pxe/`
 | 8080  | qBittorrent WebUI (in gluetun)| `127.0.0.1` publish + socket proxy |
 | 8081  | MeTube (yt-dlp web UI)        | `network_mode: host` |
 | 8082  | File Browser (youtube rw; media/torrents ro) | `network_mode: host` |
+| 8096  | Jellyfin (+ 7359/udp discovery) | `network_mode: host` |
 | 8888  | gluetun HTTP proxy (Prowlarr) | `127.0.0.1` publish + socket proxy |
 | 32400 | Plex                          | `network_mode: host` |
 
@@ -86,7 +88,7 @@ The script is idempotent. On each run it:
 2. Aborts unless `/mnt/data` is a real mountpoint (the USB disk is `nofail` —
    this prevents downloads landing on the OS disk if it's absent).
 3. Creates `/mnt/data/{torrents/{tv,movies,incomplete},media/{tv,movies},youtube}`
-   and `/home/ubuntu/appdata/{gluetun,qbittorrent,plex,metube,filebrowser}`
+   and `/home/ubuntu/appdata/{gluetun,qbittorrent,plex,jellyfin,metube,filebrowser}`
    (app configs live on the OS disk deliberately, so container state survives
    the data disk being away).
 4. Rsyncs this directory to `/home/ubuntu/nature-hermes`.
@@ -158,6 +160,28 @@ it skips with a warning if the permanent password has not been recorded yet.
   transcodes will struggle (set clients to "Original" quality). Plex metadata
   lives in `/home/ubuntu/appdata/plex` on the 40 GB OS disk — keep an eye on
   it as the library grows.
+
+## Jellyfin (`:8096`)
+
+Free, open-source Plex alternative, here for **offline downloads to
+iPhone/iPad** (Plex gates mobile downloads behind Plex Pass).
+
+- **`http://10.30.1.57:8096`**: same pattern as Plex: `network_mode: host`,
+  outside the VPN, config in `/home/ubuntu/appdata/jellyfin` (OS disk).
+- **Mounts**: only `/data/media`, read-only. Libraries are `/data/media/movies`
+  (Movies) and `/data/media/tv` (Shows). `torrents/` is deliberately absent,
+  for the same hardlink double-indexing reason as Plex.
+- **First run**: open the URL and complete the setup wizard (admin user,
+  the two libraries). Users and libraries live in appdata, not git.
+- **iOS clients**: [Streamyfin](https://github.com/streamyfin/streamyfin)
+  (free, supports offline downloads) or Swiftfin (official). Server URL is
+  `http://10.30.1.57:8096` over Tailscale (the cereal subnet router
+  advertises the LAN).
+- **Downloads are original files, not transcodes**: 2 vCPU and no GPU, so
+  download/play at "Original" quality. The *arr size caps keep a 1080p film
+  around 2.5 GB.
+- **Runs alongside Plex**, both reading the same library. Two metadata
+  databases on the 40 GB OS disk; watch its usage as the library grows.
 
 ## MeTube + File Browser (`:8081` / `:8082`)
 
