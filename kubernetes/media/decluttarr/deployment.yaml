@@ -7,7 +7,9 @@ metadata:
     app.kubernetes.io/name: decluttarr
     app.kubernetes.io/part-of: media
 spec:
-  replicas: 1
+  # Off since ~2026-09-03 (was scaled to 0 by hand while Flux was suspended).
+  # Set back to 1 to re-enable.
+  replicas: 0
   strategy:
     type: Recreate
   selector:
