@@ -8,7 +8,7 @@ This directory contains Kubernetes manifests, Helm values, and Kustomize configu
 - `tailscale/` — Tailscale operator and connector resources.
 - `headlamp/` — private Kubernetes dashboard exposed through Tailscale Ingress.
 - `peanut/` — Trello daily-briefing assistant (web app + CronJob).
-- `media/` — Sonarr/Radarr/Prowlarr, pointed at qBittorrent + NFS storage on the hermes VM (see `media/README.md`).
+- `media/` — Sonarr/Radarr/Prowlarr/Seerr, pointed at qBittorrent + NFS storage on the hermes VM (see `media/README.md`).
 - `monitoring/` — kube-prometheus-stack + node-problem-detector, remote_writing a filtered subset to Grafana Cloud (see `monitoring/README.md`).
 - `logging/` — Grafana Alloy shipping filtered pod logs to Grafana Cloud Loki.
 - `blackbox/` — ICMP probes for the LAN and the WAN.

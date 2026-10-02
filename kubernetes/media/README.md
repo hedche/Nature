@@ -1,4 +1,4 @@
-# media — Sonarr / Radarr / Prowlarr
+# media — Sonarr / Radarr / Prowlarr / Seerr
 
 The *arr layer of the media stack, running on cereal and pointed at qBittorrent
 on the hermes VM (`10.30.1.57`). Downloads and the media library live on
@@ -12,6 +12,7 @@ paths, so imports are hardlinks and **no remote path mappings are needed**.
 | Radarr | `https://radarr.<tailnet>.ts.net` | Movies | yes |
 | Prowlarr | `https://prowlarr.<tailnet>.ts.net` | Indexer manager | no |
 | FlareSolverr | none (in-cluster only) | Cloudflare challenge solver for Prowlarr | no |
+| Seerr | `https://seerr.<tailnet>.ts.net` | Requests (Jellyfin users) → Sonarr/Radarr | no |
 
 FlareSolverr is stateless (no config PVC, no ingress, no secrets); Prowlarr
 reaches it at `http://flaresolverr.media.svc.cluster.local:8191`.
@@ -108,6 +109,30 @@ Still manual (deliberately — they're accounts/choices, not derivable state):
    stay direct.
 3. Plex needs nothing: it reads `/mnt/data/media` locally on hermes; new
    imports appear on library scan.
+
+## Seerr (requests)
+
+[Seerr](https://github.com/seerr-team/seerr) (formerly Jellyseerr) lets any
+Jellyfin user browse and request films/shows; requests go straight to
+Radarr/Sonarr. Streamyfin's Seerr integration points at
+`https://seerr.<tailnet>.ts.net` and signs in with the Jellyfin account.
+
+`configure-media.sh` does the whole setup, idempotently:
+
+- **First-run bootstrap**: signs in to Jellyfin (`10.30.1.57:8096`) with
+  `jellyfin.admin_username`/`admin_password` from `secrets.yaml`. That
+  Jellyfin admin becomes Seerr's admin, and Seerr mints its own Jellyfin API
+  key. "Play" links use `http://hermes.nature.leafbit.uk:8096`.
+- **Libraries**: syncs and enables every Jellyfin library, then runs a full
+  scan so existing titles show as available.
+- **Sonarr/Radarr**: default servers on the in-cluster services, profile
+  `HD - 720p/1080p`, roots `/data/media/tv` and `/data/media/movies`.
+- **Users**: any Jellyfin user can sign in; new users get *Request* +
+  *Auto-approve*. That default only applies to users created after it was
+  set; change existing users in Seerr → Users.
+- Seerr's own API key is **not** pinned (unlike the *arrs): nothing else
+  consumes it, so the script reads it from `/app/config/settings.json`.
+  A config-PVC loss + re-run rebuilds everything except request history.
 
 ## Failure modes
 

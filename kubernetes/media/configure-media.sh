@@ -11,10 +11,12 @@
 #   - Sonarr/Radarr quality profiles scoped to match their names (SD,
 #     HD-720p, ...), blocking only the formats that are huge by
 #     construction: Remux, BR-DISK, Raw-HD
+#   - Seerr: first-run bootstrap against Jellyfin on hermes, libraries,
+#     Sonarr/Radarr servers, auto-approved requests for every Jellyfin user
 #
 # Everything it applies is derived from this repo + the root secrets.yaml
-# (qbittorrent: WebUI creds, arr: webui creds, kubernetes.secrets
-# media-secrets: API keys). Run after a fresh deploy or cluster rebuild;
+# (qbittorrent: WebUI creds, arr: webui creds, jellyfin: admin login,
+# kubernetes.secrets media-secrets: API keys). Run after a fresh deploy or cluster rebuild;
 # re-running is safe. Indexers remain manual (see README.md).
 
 set -euo pipefail
@@ -38,6 +40,7 @@ sec() {
 }
 
 export QB_USER QB_PASS ARR_USER ARR_PASS SONARR_KEY RADARR_KEY PROWLARR_KEY QB_URL
+export JF_USER JF_PASS SEERR_KEY SEERR_APP_URL
 QB_USER="$(sec '.qbittorrent.webui_username')"
 QB_PASS="$(sec '.qbittorrent.webui_password')"
 ARR_USER="$(sec '.arr.webui_username')"
@@ -45,6 +48,14 @@ ARR_PASS="$(sec '.arr.webui_password')"
 SONARR_KEY="$(sec '(.kubernetes.secrets[] | select(.name == "media-secrets")).data.SONARR__AUTH__APIKEY')"
 RADARR_KEY="$(sec '(.kubernetes.secrets[] | select(.name == "media-secrets")).data.RADARR__AUTH__APIKEY')"
 PROWLARR_KEY="$(sec '(.kubernetes.secrets[] | select(.name == "media-secrets")).data.PROWLARR__AUTH__APIKEY')"
+JF_USER="$(sec '.jellyfin.admin_username')"
+JF_PASS="$(sec '.jellyfin.admin_password')"
+# Seerr's key is generated state, not pinned: only this script uses it, so it
+# is read back from the pod rather than kept in secrets.yaml.
+SEERR_KEY="$(kubectl -n media exec deploy/seerr -- cat /app/config/settings.json \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)["main"]["apiKey"])')"
+SEERR_HOST="$(kubectl -n media get ingress seerr -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+SEERR_APP_URL="${SEERR_HOST:+https://${SEERR_HOST}}"
 
 # Local port-forwards: the ClusterIP services aren't reachable from the LAN.
 PIDS=()
@@ -53,6 +64,7 @@ trap cleanup EXIT
 kubectl -n media port-forward deploy/sonarr 18989:8989 >/dev/null 2>&1 & PIDS+=($!)
 kubectl -n media port-forward deploy/radarr 17878:7878 >/dev/null 2>&1 & PIDS+=($!)
 kubectl -n media port-forward deploy/prowlarr 19696:9696 >/dev/null 2>&1 & PIDS+=($!)
+kubectl -n media port-forward deploy/seerr 15055:5055 >/dev/null 2>&1 & PIDS+=($!)
 sleep 3
 
 python3 - <<'PYEOF'
@@ -458,6 +470,130 @@ def qbittorrent_categories():
             print(f"qbittorrent: create category {cat} -> HTTP {r.status}")
 
 
+SEERR = "http://127.0.0.1:15055/api/v1"
+# Seerr reaches Jellyfin on the LAN; phones open "Play" links via the name
+# that resolves to the same LAN IP through the tailnet subnet router.
+JELLYFIN = {"hostname": "10.30.1.57", "port": 8096, "useSsl": False, "urlBase": ""}
+JELLYFIN_EXTERNAL = "http://hermes.nature.leafbit.uk:8096"
+REQUEST_PROFILE = "HD - 720p/1080p"
+# Seerr permission bits (server/lib/permissions.ts): REQUEST | AUTO_APPROVE.
+DEFAULT_PERMISSIONS = 32 | 128
+
+
+def seerr(path, payload=None, method=None, auth=True):
+    headers = {"Content-Type": "application/json"}
+    if auth:
+        headers["X-Api-Key"] = os.environ["SEERR_KEY"]
+    req = urllib.request.Request(
+        f"{SEERR}{path}",
+        data=json.dumps(payload).encode() if payload is not None else None,
+        headers=headers,
+        method=method or ("POST" if payload is not None else "GET"),
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            body = r.read().decode()
+            return r.status, json.loads(body) if body else None
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode()[:300]
+
+
+def seerr_wait_ready(tries=20):
+    for _ in range(tries):
+        try:
+            if seerr("/status", auth=False)[0] == 200:
+                return
+        except OSError:
+            pass
+        time.sleep(3)
+    raise SystemExit("seerr: API not reachable via port-forward")
+
+
+def seerr_bootstrap():
+    """First run: sign in as the Jellyfin admin, which makes that account
+    Seerr's admin (user 1) and has Seerr mint its own Jellyfin API key. The
+    X-Api-Key acts as user 1, so it is rejected until this has happened."""
+    st, jf = seerr("/settings/jellyfin")
+    if st == 200 and jf.get("ip"):
+        print("seerr: Jellyfin already configured")
+        return
+    payload = {"username": os.environ["JF_USER"], "password": os.environ["JF_PASS"],
+               "email": os.environ["JF_USER"], "serverType": 2, **JELLYFIN}
+    st, r = seerr("/auth/jellyfin", payload, auth=False)
+    if st != 200:
+        raise SystemExit(f"seerr: Jellyfin bootstrap FAILED -> HTTP {st} {r}")
+    print("seerr: bootstrapped against Jellyfin (admin = Jellyfin admin)")
+
+
+def seerr_jellyfin():
+    _, jf = seerr("/settings/jellyfin")
+    if jf.get("externalHostname") != JELLYFIN_EXTERNAL:
+        st, r = seerr("/settings/jellyfin", {"externalHostname": JELLYFIN_EXTERNAL})
+        print(f"seerr: Jellyfin external URL -> HTTP {st}" + ("" if st == 200 else f" {r}"))
+    st, libs = seerr("/settings/jellyfin/library/sync", {})
+    if st != 200:
+        print(f"seerr: library sync FAILED -> HTTP {st} {libs}")
+        return
+    enabled = 0
+    for lib in libs:
+        if lib.get("enabled"):
+            continue
+        st, r = seerr(f"/settings/jellyfin/library/{lib['id']}", {"enabled": True}, method="PUT")
+        print(f"seerr: enable library {lib['name']} -> HTTP {st}" + ("" if st == 200 else f" {r}"))
+        enabled += 1
+    if enabled:
+        st, _ = seerr("/settings/jobs/jellyfin-full-scan/run", {})
+        print(f"seerr: start Jellyfin full scan -> HTTP {st}")
+    else:
+        print(f"seerr: {len(libs)} Jellyfin libraries enabled")
+
+
+def seerr_dvr(kind, port, root, extra):
+    name = kind.capitalize()
+    _, servers = seerr(f"/settings/{kind}")
+    if any(s["name"] == name for s in servers):
+        print(f"seerr: {name} server present")
+        return
+    conn = {"hostname": f"{kind}.media.svc.cluster.local", "port": port,
+            "apiKey": os.environ[f"{kind.upper()}_KEY"], "useSsl": False, "baseUrl": ""}
+    st, t = seerr(f"/settings/{kind}/test", conn)
+    if st != 200:
+        print(f"seerr: {name} test FAILED -> HTTP {st} {t}")
+        return
+    prof = next((p for p in t["profiles"] if p["name"] == REQUEST_PROFILE), None)
+    if prof is None or root not in [f["path"] for f in t["rootFolders"]]:
+        print(f"seerr: {name} lacks profile '{REQUEST_PROFILE}' or root {root} — skipped")
+        return
+    payload = {**conn, "name": name, "activeProfileId": prof["id"],
+               "activeProfileName": prof["name"], "activeDirectory": root, "tags": [],
+               "is4k": False, "isDefault": True, "syncEnabled": True,
+               "preventSearch": False, "tagRequests": False, "overrideRule": [],
+               "externalUrl": ""}
+    payload.update(extra(prof, root))
+    st, r = seerr(f"/settings/{kind}", payload)
+    print(f"seerr: add {name} ({prof['name']}, {root}) -> HTTP {st}" + ("" if st == 201 else f" {r}"))
+
+
+def seerr_main():
+    """Every Jellyfin user may sign in and request; requests are auto-approved.
+    defaultPermissions only applies to users created after it is set."""
+    _, main = seerr("/settings/main")
+    want = {"mediaServerLogin": True, "newPlexLogin": True,
+            "defaultPermissions": DEFAULT_PERMISSIONS}
+    if os.environ.get("SEERR_APP_URL"):
+        want["applicationUrl"] = os.environ["SEERR_APP_URL"]
+    diff = {k: v for k, v in want.items() if main.get(k) != v}
+    if diff:
+        st, r = seerr("/settings/main", diff)
+        print(f"seerr: main settings {sorted(diff)} -> HTTP {st}" + ("" if st == 200 else f" {r}"))
+    else:
+        print("seerr: main settings already applied")
+    _, pub = seerr("/settings/public", auth=False)
+    if not pub.get("initialized"):
+        st, _ = seerr("/settings/initialize", {})
+        print(f"seerr: mark setup complete -> HTTP {st}")
+
+
 qbittorrent_categories()
 for app in APPS:
     wait_ready(app)
@@ -478,5 +614,16 @@ ensure_quality_sizes("sonarr")
 ensure_quality_sizes("radarr")
 ensure_scoped_profiles("sonarr")
 ensure_scoped_profiles("radarr")
+seerr_wait_ready()
+seerr_bootstrap()
+seerr_jellyfin()
+seerr_dvr("sonarr", 8989, "/data/media/tv", lambda p, root: {
+    "seriesType": "standard", "animeSeriesType": "anime",
+    "activeAnimeProfileId": p["id"], "activeAnimeProfileName": p["name"],
+    "activeAnimeDirectory": root, "animeTags": [],
+    "enableSeasonFolders": True, "monitorNewItems": "all"})
+seerr_dvr("radarr", 7878, "/data/media/movies", lambda p, root: {
+    "minimumAvailability": "released"})
+seerr_main()
 print("media wiring applied.")
 PYEOF
