@@ -189,7 +189,7 @@ machine:
     # Used to provide instructions for installations.
     install:
         # disk: /dev/sda # The disk used for installations.
-        image: ghcr.io/siderolabs/installer:v1.13.11 # Allows for supplying the image used to perform the installation.
+        image: factory.talos.dev/metal-installer/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba:v1.14.2 # Allows for supplying the image used to perform the installation.
         wipe: true # Indicates if the installation disk should be wiped at installation time.
         
         # Install disk set per-node in patches/ using wwid for stability.
