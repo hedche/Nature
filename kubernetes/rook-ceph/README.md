@@ -92,3 +92,17 @@ sum by (instance) (increase(node_disk_written_bytes_total{device="nvme0n1"}[24h]
 | baseline (2026-10-03, crackle out of cluster) | defaults | 87.5 | 90.7 | — |
 | 1 | LZ4 on mon RocksDB | | | |
 | 2 | double paxos trim thresholds | | | |
+
+## CephX key types (CVE-2025-30156)
+
+Ceph 19.2.6 added `AUTH_INSECURE_*` health checks for the CephX AES-CBC auth bypass. Daemon keys (mon, mgr, osd, rgw, admin) are rotated to `aes256k` by `cephClusterSpec.security.cephx.daemon` in `cluster-helmrelease.yaml`. Every Ceph daemon restarts, and `AUTH_INSECURE_ROTATING_SERVICE_KEY_TYPE` clears 2–3h later on its own.
+
+CSI and other client keys stay `aes` for now: krbd needs Linux 7.0+ for `aes256k`, and Talos 1.13 ships 6.18. Until then, three warnings are expected and muted. Rook has no field for this, so the mutes are set by hand and stored in the mons:
+
+```sh
+for c in AUTH_INSECURE_CLIENT_KEY_TYPE AUTH_INSECURE_KEYS_ALLOWED AUTH_INSECURE_KEYS_CREATABLE; do
+  kubectl --namespace rook-ceph exec deploy/rook-ceph-tools -- ceph health mute "$c" --sticky
+done
+```
+
+Once all nodes are on kernel 7.0+: set `security.cephx.csi` (`keyGeneration: 2`, `keyType: aes256k`, `keepPriorKeyCountMax: 1`), drain and uncordon each node, then set `security.cephx.allowedCiphers: [aes256k]` and `ceph health unmute` the three checks. See https://rook.io/docs/rook/v1.19/Storage-Configuration/Advanced/cephx-key-rotation/
