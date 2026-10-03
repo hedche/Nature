@@ -250,6 +250,21 @@ kubectl -n monitoring exec -it sts/prometheus-kube-prometheus-stack-prometheus -
 **Never silence `Watchdog`.** It is the always-firing alert whose absence Home Assistant
 uses as the LAN-side dead-man's switch.
 
+## Upgrading the chart
+
+Bump `version` in `helmrelease.yaml` one major at a time and read that major's entry in the
+chart's `UPGRADE.md` first. Ignore its "`kubectl apply --server-side` the CRDs" step: that is
+for plain `helm upgrade`, which skips `crds/`. `upgrade.crds: CreateReplace` makes
+helm-controller replace the CRDs from the chart, which took them 0.92.1 → 0.93.1 → 0.94.1
+during the 87 → 91 upgrade (#84) with no manual step. After each hop, check:
+
+```sh
+kubectl get crd -o custom-columns=NAME:.metadata.name,VER:'.metadata.annotations.operator\.prometheus\.io/version' | grep monitoring.coreos
+```
+
+and that targets, rule health and `prometheus_remote_storage_samples_failed_total` match
+what they were before.
+
 ## Known gaps
 
 - `kubeControllerManager`, `kubeScheduler` and `kubeEtcd` scraping are **disabled** in
