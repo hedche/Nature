@@ -4,3 +4,4 @@ resources:
   - rules
   - servicemonitor-ceph.yaml
   - podmonitor-node-problem-detector.yaml
+  - podmonitor-smartctl-exporter.yaml
