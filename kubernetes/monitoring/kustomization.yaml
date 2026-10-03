@@ -10,3 +10,4 @@ resources:
   - ingress-prometheus.yaml
   - ingress-alertmanager.yaml
   - node-problem-detector
+  - smartctl-exporter

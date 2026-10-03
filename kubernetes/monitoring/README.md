@@ -31,6 +31,7 @@ for headlamp. **Never** expose them through cloudflared.
 | `rules/` | homelab-specific `PrometheusRule`s, plus the recording rules that feed remote_write |
 | `rules/nature-selfcheck.yaml` | asks whether the alerting itself still works — `absent()` canaries for every metric a critical alert depends on, plus notification-delivery and config-reload failures |
 | `node-problem-detector/` | DaemonSet reading `/dev/kmsg` for NVMe DMA faults and kubelet healthz — see below |
+| `smartctl-exporter/` | DaemonSet exposing SMART/NVMe health (wear %, spare, media errors, temperature, bytes written) — see below |
 | `servicemonitor-ceph.yaml` | scrapes rook's existing mgr and exporter Services |
 | `ingress-*.yaml` | tailscale Ingresses for the two debug UIs |
 
@@ -97,6 +98,44 @@ passes 1, so a real storm went unpaged while this test still looked green. It no
 temporary `NVMeDMAFaultEvent` rule. Clearing the condition needs an NPD restart
 (permanent conditions do not self-reset):
 `kubectl -n monitoring rollout restart daemonset/node-problem-detector`.
+
+## SSD/NVMe wear
+
+`smartctl-exporter/` closes the gap from issue #73: `node_exporter` exposes NVMe
+identity (`node_nvme_info`) and temperature but no SMART health, so nothing short of a
+manual `nvme smart-log` showed drive wear. Wear matters here specifically because
+`ceph-mon`'s write amplification (issue #74) puts ~25 TB/year on 256GB consumer drives
+rated ~100-150 TBW — `pop` was already at 44% before this existed and nobody knew.
+
+Same privileged-DaemonSet pattern as `node-problem-detector/`: the monitoring namespace
+is PSA-labelled `privileged` already, so no new namespace policy was needed. Unlike NPD
+it does not need `hostNetwork` — it doesn't bind a loopback-only port — so it is scraped
+as a normal PodMonitor against the pod IP.
+
+It runs [`prometheus-community/smartctl_exporter`](https://github.com/prometheus-community/smartctl_exporter)
+with no `--smartctl.device` flags, so it auto-discovers every block device (NVMe and
+SATA) via `smartctl --scan-open` against the host's `/dev`, rescanning every 10m. That
+covers both the workers' NVMe OS disks and every node's SATA SSD — including `cereal`'s
+SATA boot disk and each worker's SATA Ceph-OSD disk, which also matters (OSDs write
+~9GB/day).
+
+Key metrics, allow-listed in `helmrelease.yaml`'s `writeRelabelConfigs` for Grafana
+Cloud:
+
+| Metric | Meaning |
+|---|---|
+| `smartctl_device_percentage_used` | NVMe wear indicator — the headline number from #73 |
+| `smartctl_device_available_spare` | NVMe spare blocks remaining, 0-100% |
+| `smartctl_device_media_errors` | NVMe unrecovered data-integrity errors |
+| `smartctl_device_bytes_written` | lifetime bytes written — the TBW counterpart to `percentage_used` |
+| `smartctl_device_temperature` | drive temperature |
+| `smartctl_device_smart_status` | overall pass/fail |
+| `smartctl_device_attribute` | generic SMART attribute table — SATA drives report wear here (e.g. an `SSD_Life_Left`/`Media_Wearout_Indicator`-style attribute) rather than via `percentage_used`, which is NVMe-only |
+
+`rules/nature-hardware.yaml` adds `NVMeWearHigh` (warning, >70% used) — a slow-moving
+gauge, not a counter, so unlike `NVMeDMAFaultStorm` a plain threshold is correct and
+there is no `increase()` trap to fall into. The Grafana Cloud dashboard panel is defined
+in Terraform under `../../grafana/` (`dashboards.tf`).
 
 ## Secrets
 

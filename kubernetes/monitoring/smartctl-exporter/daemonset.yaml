@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: smartctl-exporter
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: smartctl-exporter
+    app.kubernetes.io/part-of: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: smartctl-exporter
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smartctl-exporter
+        app.kubernetes.io/part-of: monitoring
+    spec:
+      # No ServiceAccount needed — this never talks to the k8s API, only /dev.
+      automountServiceAccountToken: false
+      priorityClassName: system-node-critical
+      # Must run everywhere, cereal included — it boots from a SATA SSD with its
+      # own wear curve, same reasoning as node-problem-detector.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+      containers:
+        - name: smartctl-exporter
+          image: prometheuscommunity/smartctl-exporter:v0.14.0
+          imagePullPolicy: IfNotPresent
+          args:
+            # No --smartctl.device flags: it scans for devices itself (NVMe +
+            # SATA) via `smartctl --scan-open`, which is what picks up both the
+            # workers' NVMe OS disks and every node's SATA Ceph-OSD/boot SSD.
+            - --smartctl.interval=60s
+            - --smartctl.rescan=10m
+          ports:
+            - name: metrics
+              containerPort: 9633
+              protocol: TCP
+          securityContext:
+            # smartctl needs raw access to block devices under /dev, which is
+            # root-owned and not readable unprivileged. The monitoring namespace
+            # is labelled PSA privileged for exactly this (see
+            # ../node-problem-detector/daemonset.yaml).
+            privileged: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: dev
+              mountPath: /dev
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+      volumes:
+        - name: dev
+          hostPath:
+            path: /dev
+            type: Directory

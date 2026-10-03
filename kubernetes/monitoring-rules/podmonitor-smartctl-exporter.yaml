@@ -1,0 +1,29 @@
+# smartctl-exporter (../monitoring/smartctl-exporter/) does not use hostNetwork,
+# so — unlike node-problem-detector — a plain PodMonitor against the pod IP is
+# fine; there's no need to relabel onto the node IP for it to be reachable.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: smartctl-exporter
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: smartctl-exporter
+    app.kubernetes.io/part-of: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: smartctl-exporter
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      relabelings:
+        # Give every series the node name, so alerts/dashboards can say which
+        # box's drive is wearing out.
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: instance
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+        - targetLabel: job
+          replacement: smartctl-exporter

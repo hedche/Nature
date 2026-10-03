@@ -116,3 +116,25 @@ spec:
             severity: critical
           annotations:
             summary: "Filesystem/IO errors in the kernel log on {{ $labels.instance }}"
+
+        # See docs/nvme-dma-fault-monitoring.md and issue #73/#74: these are 256GB
+        # consumer drives carrying ~68GB/day of mostly-avoidable ceph-mon write
+        # amplification (#74), rated ~100-150 TBW. Measured 2026-09-27 via a debug
+        # pod reading NVMe SMART logs directly: pop 44%, crackle 28%, snap 22%.
+        # Nobody noticed pop's number because, before smartctl-exporter
+        # (../../monitoring/smartctl-exporter/), it was invisible outside a manual
+        # `nvme smart-log`. This is a gauge that only trends upward over months, not
+        # a counter that could misbehave the way NVMeDMAFault's did — no `increase()`
+        # trap here, a plain threshold is correct.
+        - alert: NVMeWearHigh
+          expr: smartctl_device_percentage_used > 70
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.device }} on {{ $labels.instance }} is {{ $value }}% worn"
+            description: >-
+              NVMe/SSD wear (percentage_used) has crossed 70%. Plan a replacement —
+              this rises slowly and predictably, so there is no need to act tonight,
+              but it will eventually fail outright if ignored. Check the dashboard
+              panel for the trend and compare against the other nodes' drives.
