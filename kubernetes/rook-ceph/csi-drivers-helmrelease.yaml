@@ -1,0 +1,153 @@
+# Ceph-CSI drivers, split out of the rook-ceph chart in Rook v1.20. The
+# rook-ceph chart still installs the ceph-csi-operator and its CRDs; this
+# release owns the OperatorConfig and Driver CRs the operator turns into the
+# RBD ctrlplugin Deployment and nodeplugin DaemonSet, plus their RBAC.
+#
+# Rook v1.19 created those two CRs itself, already annotated for a Helm release
+# named ceph-csi-drivers in rook-ceph, so this release adopts them in place.
+# The values reproduce the live v1.19 CRs field for field: the chart's own
+# defaults differ in places that matter (30s gRPC timeout, no snapshotter, log
+# rotation on, nfs/nvmeof/cephfs on), so do not trim the explicit ones.
+#
+# The chart version tracks the ceph-csi-operator subchart pinned by the
+# rook-ceph chart (deploy/charts/rook-ceph/Chart.yaml); bump them together.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ceph-csi-drivers
+  namespace: rook-ceph
+spec:
+  interval: 30m
+  timeout: 15m
+  releaseName: ceph-csi-drivers
+  dependsOn:
+    - name: rook-ceph
+      namespace: rook-ceph
+  chart:
+    spec:
+      chart: ceph-csi-drivers
+      version: "1.0.4"
+      sourceRef:
+        kind: HelmRepository
+        name: ceph-csi-operator
+        namespace: flux-system
+      interval: 10m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    operatorConfig:
+      namespace: rook-ceph
+      driverSpecDefaults:
+        log:
+          verbosity: 0
+          rotation:
+            enabled: false
+        # Written by the rook-ceph chart; carries the CSI image tags.
+        imageSet:
+          name: rook-csi-operator-image-set-configmap
+        clusterName: rook-ceph
+        enableMetadata: false
+        snapshotPolicy: volumeSnapshot
+        grpcTimeout: 150
+        nodePlugin:
+          priorityClassName: system-node-critical
+          kubeletDirPath: /var/lib/kubelet
+          enableSeLinuxHostMount: false
+        controllerPlugin:
+          # v1.19 set this here, but the operator never merges hostNetwork or
+          # deploymentStrategy from these defaults into a Driver, so the
+          # ctrlplugin actually runs off the host network.
+          hostNetwork: true
+          deploymentStrategy:
+            type: Recreate
+          replicas: 1
+          priorityClassName: system-cluster-critical
+    drivers:
+      rbd:
+        enabled: true
+        # Must match the StorageClass provisioner and every existing PV.
+        name: rook-ceph.rbd.csi.ceph.com
+        log:
+          verbosity: 0
+          rotation:
+            enabled: false
+        imageSet:
+          name: rook-csi-operator-image-set-configmap
+        clusterName: rook-ceph
+        enableMetadata: false
+        # Unset on the live Driver, which the operator reads as volumeSnapshot
+        # and 150s; the chart would otherwise write none and 30.
+        snapshotPolicy: volumeSnapshot
+        grpcTimeout: 150
+        nodePlugin:
+          priorityClassName: system-node-critical
+          kubeletDirPath: /var/lib/kubelet
+          enableSeLinuxHostMount: false
+          # Empty inherits IfNotPresent from the OperatorConfig, as live.
+          imagePullPolicy: ""
+          updateStrategy:
+            type: RollingUpdate
+          resources:
+            registrar:
+              requests:
+                memory: 32Mi
+                cpu: 10m
+              limits:
+                memory: 256Mi
+            plugin:
+              requests:
+                memory: 256Mi
+                cpu: 50m
+              limits:
+                memory: 1Gi
+        controllerPlugin:
+          hostNetwork: false
+          # One provisioner is plenty for three workers.
+          replicas: 1
+          priorityClassName: system-cluster-critical
+          imagePullPolicy: ""
+          resources:
+            provisioner:
+              requests:
+                memory: 64Mi
+                cpu: 25m
+              limits:
+                memory: 256Mi
+            resizer:
+              requests:
+                memory: 64Mi
+                cpu: 25m
+              limits:
+                memory: 256Mi
+            attacher:
+              requests:
+                memory: 64Mi
+                cpu: 25m
+              limits:
+                memory: 256Mi
+            snapshotter:
+              requests:
+                memory: 64Mi
+                cpu: 25m
+              limits:
+                memory: 256Mi
+            plugin:
+              requests:
+                memory: 256Mi
+                cpu: 50m
+              limits:
+                memory: 1Gi
+      # CephFS is unused: no CephFilesystem CRs, no cephfs StorageClass, and
+      # `ceph fs ls` reports no filesystems. Leaving it off drops 2 ctrlplugin +
+      # 3 nodeplugin pods. Enable it (name rook-ceph.cephfs.csi.ceph.com) if
+      # RWX volumes are ever needed.
+      cephfs:
+        enabled: false
+      nfs:
+        enabled: false
+      nvmeof:
+        enabled: false
