@@ -45,10 +45,18 @@ spec:
               protocol: TCP
           securityContext:
             # smartctl needs raw access to block devices under /dev, which is
-            # root-owned and not readable unprivileged. The monitoring namespace
-            # is labelled PSA privileged for exactly this (see
-            # ../node-problem-detector/daemonset.yaml).
+            # root-owned (0600/0660) and not readable unprivileged. The
+            # monitoring namespace is labelled PSA privileged for exactly this
+            # (see ../node-problem-detector/daemonset.yaml). privileged alone is
+            # NOT enough here: the upstream image's default user is UID 65534
+            # (nobody), and `privileged: true` grants capabilities to the
+            # container's process set but does not change its UID — DAC checks
+            # on the device nodes still failed with "Permission denied" until
+            # the process itself runs as root. Confirmed against upstream's own
+            # Docker instructions, which require `user: root` alongside
+            # `privileged: true`.
             privileged: true
+            runAsUser: 0
           resources:
             requests:
               cpu: 10m
