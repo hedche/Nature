@@ -69,7 +69,7 @@ kubectl --namespace rook-ceph wait --timeout=1800s --for=jsonpath='{.status.ceph
 
 ## Mon write amplification (#74)
 
-`ceph-mon` keeps its ~80 MB RocksDB store under `/var/lib/rook` on the **OS NVMe**, and rewrites it hundreds of times a day (upstream [tracker #63229](https://tracker.ceph.com/issues/63229)). Fixes are applied one at a time through `cephConfig.mon` in `cluster-helmrelease.yaml`, with at least 24h of measurement between them.
+`ceph-mon` keeps its ~80 MB RocksDB store under `/var/lib/rook` on the **OS NVMe**, and rewrites it hundreds of times a day (upstream [tracker #63229](https://tracker.ceph.com/issues/63229)). Fixes are applied one at a time through `configOverride` (ceph.conf) in `cluster-helmrelease.yaml` — not `cephConfig`, which mons cannot read before opening their store, with at least 24h of measurement between them.
 
 `mon_rocksdb_options` is read only at mon start. After Flux applies a change, restart the mons one at a time and wait for 3/3 quorum between each:
 
