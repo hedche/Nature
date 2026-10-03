@@ -3,7 +3,9 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - helmrepository.yaml
+  - helmrepository-ceph-csi-operator.yaml
   - operator-helmrelease.yaml
+  - csi-drivers-helmrelease.yaml
   - cluster-helmrelease.yaml
   - ingress-rgw.yaml
   - obc-leafbit-archive.yaml
