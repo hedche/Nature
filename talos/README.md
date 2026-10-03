@@ -210,3 +210,16 @@ talosctl gen secrets -o ~/.config/nature/secrets.yaml
 > This cannot speak for any repository that was deleted or force-pushed before
 > the audit. If Talos credentials were ever exposed elsewhere, rotate with the
 > commands above.
+
+## Upgrading Cilium
+
+Cilium is the Helm release `cilium` in `kube-system`. The cilium-cli Job in `controlplane.yaml`'s inline manifests created it on first boot; Flux doesn't manage it. Its values are committed in `talos/cilium-values.yaml`. Upgrade one minor at a time, latest patch first, using Helm 3 (the release was written by the Helm 3 SDK):
+
+```sh
+helm repo add cilium https://helm.cilium.io
+helm upgrade cilium cilium/cilium -n kube-system --version <x.y.z> -f talos/cilium-values.yaml --wait
+# across a minor: run the preflight first and add --set upgradeCompatibility=<previous minor>; never --reuse-values
+kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --brief
+```
+
+Don't edit the inline cilium-cli Job's pod template. `talosctl upgrade-k8s` re-applies it, and the Job's template is immutable, so the upgrade would fail. History: 1.19.3 → 1.19.8 on 2026-10-03.
