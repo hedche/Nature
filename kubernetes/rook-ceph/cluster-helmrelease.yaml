@@ -53,6 +53,18 @@ spec:
       allowUnsupported: false
     cephClusterSpec:
       dataDirHostPath: /var/lib/rook
+
+      # CVE-2025-30156 (CephX AES-CBC auth bypass). Ceph 19.2.6 flags every
+      # 'aes' key; rotating the daemon keys to aes256k clears the ERR and
+      # closes the privilege escalation. Bump keyGeneration to rotate again.
+      # CSI/client keys stay 'aes' until every node runs kernel 7.0+ (Talos
+      # 1.13 ships 6.18) — krbd can't use aes256k before that.
+      security:
+        cephx:
+          daemon:
+            keyRotationPolicy: KeyGeneration
+            keyGeneration: 2
+            keyType: aes256k
       mon:
         count: 3
         allowMultiplePerNode: false
