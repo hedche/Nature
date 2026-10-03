@@ -222,4 +222,4 @@ helm upgrade cilium cilium/cilium -n kube-system --version <x.y.z> -f talos/cili
 kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --brief
 ```
 
-Don't edit the inline cilium-cli Job's pod template. `talosctl upgrade-k8s` re-applies it, and the Job's template is immutable, so the upgrade would fail. History: 1.19.3 → 1.19.8 on 2026-10-03.
+Don't edit the inline cilium-cli Job's pod template. `talosctl upgrade-k8s` re-applies it, and the Job's template is immutable, so the upgrade would fail. History: 1.19.3 → 1.19.8 → 1.20.2 (preflight first, `upgradeCompatibility=1.19`) on 2026-10-03.
