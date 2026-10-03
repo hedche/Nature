@@ -8,7 +8,7 @@ spec:
   chart:
     spec:
       chart: kube-prometheus-stack
-      version: "87.x"
+      version: "89.x"
       sourceRef:
         kind: HelmRepository
         name: prometheus-community
@@ -18,6 +18,10 @@ spec:
     crds: Create
     remediation:
       retries: 3
+  # The chart's UPGRADE.md says to `kubectl apply --server-side` the CRDs before
+  # every operator bump. That is for plain `helm upgrade`, which never touches
+  # crds/. CreateReplace makes helm-controller replace them from the chart's
+  # crds subchart on each upgrade, so they track the operator version from Git.
   upgrade:
     crds: CreateReplace
     remediation:
