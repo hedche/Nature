@@ -95,14 +95,14 @@ sum by (instance) (increase(node_disk_written_bytes_total{device="nvme0n1"}[24h]
 
 ## CephX key types (CVE-2025-30156)
 
-Ceph 19.2.6 added `AUTH_INSECURE_*` health checks for the CephX AES-CBC auth bypass. Daemon keys (mon, mgr, osd, rgw, admin) are rotated to `aes256k` by `cephClusterSpec.security.cephx.daemon` in `cluster-helmrelease.yaml`. Every Ceph daemon restarts, and `AUTH_INSECURE_ROTATING_SERVICE_KEY_TYPE` clears 2–3h later on its own.
+Ceph 19.2.6 added `AUTH_INSECURE_*` health checks for the CephX AES-CBC auth bypass. Daemon keys (mon, mgr, osd, rgw, admin) are rotated to `aes256k` by `cephClusterSpec.security.cephx.daemon` in `cluster-helmrelease.yaml`. Every Ceph daemon restarts, and `AUTH_INSECURE_ROTATING_SERVICE_KEY_TYPE` clears 2–3h later on its own. Afterwards the toolbox keeps the old admin key (`RADOS permission denied`) until it's restarted: `kubectl --namespace rook-ceph rollout restart deploy/rook-ceph-tools`. Done 2026-10-03: all 7 krbd PVCs kept reading and writing on kernel 6.18.
 
-CSI and other client keys stay `aes` for now: krbd needs Linux 7.0+ for `aes256k`, and Talos 1.13 ships 6.18. Until then, three warnings are expected and muted. Rook has no field for this, so the mutes are set by hand and stored in the mons:
+CSI and other client keys stay `aes` for now: krbd needs Linux 7.0+ for `aes256k`, and Talos 1.13 ships 6.18. Until then, four warnings are expected and muted. `AUTH_EMERGENCY_CIPHERS_SET` comes from Rook itself, which starts the mons with `--mon-auth-emergency-allowed-ciphers=aes,aes256k` so the `aes` clients keep working. Rook has no field for this, so the mutes are set by hand and stored in the mons:
 
 ```sh
-for c in AUTH_INSECURE_CLIENT_KEY_TYPE AUTH_INSECURE_KEYS_ALLOWED AUTH_INSECURE_KEYS_CREATABLE; do
+for c in AUTH_INSECURE_CLIENT_KEY_TYPE AUTH_INSECURE_KEYS_ALLOWED AUTH_INSECURE_KEYS_CREATABLE AUTH_EMERGENCY_CIPHERS_SET; do
   kubectl --namespace rook-ceph exec deploy/rook-ceph-tools -- ceph health mute "$c" --sticky
 done
 ```
 
-Once all nodes are on kernel 7.0+: set `security.cephx.csi` (`keyGeneration: 2`, `keyType: aes256k`, `keepPriorKeyCountMax: 1`), drain and uncordon each node, then set `security.cephx.allowedCiphers: [aes256k]` and `ceph health unmute` the three checks. See https://rook.io/docs/rook/v1.19/Storage-Configuration/Advanced/cephx-key-rotation/
+Once all nodes are on kernel 7.0+: set `security.cephx.csi` (`keyGeneration: 2`, `keyType: aes256k`, `keepPriorKeyCountMax: 1`), drain and uncordon each node, then set `security.cephx.allowedCiphers: [aes256k]` and `ceph health unmute` the four checks. See https://rook.io/docs/rook/v1.19/Storage-Configuration/Advanced/cephx-key-rotation/
