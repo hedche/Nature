@@ -18,7 +18,7 @@ machine:
 
     # Used to provide additional options to the kubelet.
     kubelet:
-        image: ghcr.io/siderolabs/kubelet:v1.34.12 # The `image` field is an optional reference to an alternative kubelet image.
+        image: ghcr.io/siderolabs/kubelet:v1.36.5 # The `image` field is an optional reference to an alternative kubelet image.
         defaultRuntimeSeccompProfileEnabled: true # Enable container runtime default Seccomp profile.
         disableManifestsDirectory: true # The `disableManifestsDirectory` field configures the kubelet to get static pod manifests from the /etc/kubernetes/manifests directory.
         
@@ -455,7 +455,7 @@ cluster:
         key: ${TALOS_SERVICE_ACCOUNT_KEY}
     # API server specific configuration options.
     apiServer:
-        image: registry.k8s.io/kube-apiserver:v1.34.12 # The container image used in the API server manifest.
+        image: registry.k8s.io/kube-apiserver:v1.36.5 # The container image used in the API server manifest.
         # Extra certificate subject alternative names for the API server's certificate.
         certSANs:
             - cereal.nature.leafbit.uk
@@ -513,7 +513,7 @@ cluster:
         #         timeout: 3s
     # Controller manager server specific configuration options.
     controllerManager:
-        image: registry.k8s.io/kube-controller-manager:v1.34.12 # The container image used in the controller manager manifest.
+        image: registry.k8s.io/kube-controller-manager:v1.36.5 # The container image used in the controller manager manifest.
         # Talos binds kube-controller-manager to 127.0.0.1:10257 by default, which
         # makes its /metrics unreachable from the Prometheus pod on another node.
         # The endpoint still requires a bearer token (RBAC) — this does not make it
@@ -525,7 +525,7 @@ cluster:
         disabled: true # Cilium handles service routing via eBPF
     # Scheduler server specific configuration options.
     scheduler:
-        image: registry.k8s.io/kube-scheduler:v1.34.12 # The container image used in the scheduler manifest.
+        image: registry.k8s.io/kube-scheduler:v1.36.5 # The container image used in the scheduler manifest.
         # Same as controllerManager above — default bind is 127.0.0.1:10259.
         extraArgs:
             bind-address: 0.0.0.0
