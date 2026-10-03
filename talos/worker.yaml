@@ -189,7 +189,7 @@ machine:
     # Used to provide instructions for installations.
     install:
         # disk: /dev/sda # The disk used for installations.
-        image: ghcr.io/siderolabs/installer:v1.13.2 # Allows for supplying the image used to perform the installation.
+        image: ghcr.io/siderolabs/installer:v1.13.11 # Allows for supplying the image used to perform the installation.
         wipe: true # Indicates if the installation disk should be wiped at installation time.
         
         # Install disk set per-node in patches/ using wwid for stability.
