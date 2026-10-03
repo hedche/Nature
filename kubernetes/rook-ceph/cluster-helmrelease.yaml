@@ -68,6 +68,13 @@ spec:
       cephConfig:
         osd:
           osd_memory_target: "2147483648"   # 2 GiB
+        # ceph-mon wrote ~64 GB/day per node to the OS NVMe for an ~80 MB store
+        # (#74, upstream tracker #63229). Squid enables LZ4 for the OSD RocksDB
+        # but still ships the mon's with kNoCompression; the defaults are
+        # preserved here and compression added. Takes effect only on mon restart
+        # — roll them one at a time, 3/3 in quorum between each.
+        mon:
+          mon_rocksdb_options: "write_buffer_size=33554432,compression=kLZ4Compression,bottommost_compression=kLZ4HCCompression,level_compaction_dynamic_level_bytes=true"
 
       # Chart defaults are sized for a production cluster (osd 1 CPU + 4Gi, mon
       # 1 CPU + 1Gi, mgr 500m each) and accounted for ~59% of this cluster's

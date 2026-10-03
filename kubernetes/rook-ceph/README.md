@@ -66,3 +66,29 @@ kubectl --namespace rook-ceph get cephcluster rook-ceph
 kubectl --namespace rook-ceph wait --timeout=1800s --for=jsonpath='{.status.ceph.health}=HEALTH_OK' cephcluster rook-ceph
 ```
 
+
+## Mon write amplification (#74)
+
+`ceph-mon` keeps its ~80 MB RocksDB store under `/var/lib/rook` on the **OS NVMe**, and rewrites it hundreds of times a day (upstream [tracker #63229](https://tracker.ceph.com/issues/63229)). Fixes are applied one at a time through `cephConfig.mon` in `cluster-helmrelease.yaml`, with at least 24h of measurement between them.
+
+`mon_rocksdb_options` is read only at mon start. After Flux applies a change, restart the mons one at a time and wait for 3/3 quorum between each:
+
+```sh
+for m in b c f; do
+  kubectl --namespace rook-ceph rollout restart deploy/rook-ceph-mon-$m
+  kubectl --namespace rook-ceph rollout status deploy/rook-ceph-mon-$m
+  kubectl --namespace rook-ceph exec deploy/rook-ceph-tools -- ceph quorum_status -f json | jq -r '.quorum_names | join(",")'
+done
+```
+
+Measure per-node NVMe writes as a 24h increase, never as a short rate (mon writes are bursty), and ignore cAdvisor's `container_fs_writes_bytes_total`:
+
+```promql
+sum by (instance) (increase(node_disk_written_bytes_total{device="nvme0n1"}[24h])) / 1e9
+```
+
+| step | change | snap GB/day | pop GB/day | crackle GB/day |
+|---|---|---|---|---|
+| baseline (2026-10-03, crackle out of cluster) | defaults | 87.5 | 90.7 | — |
+| 1 | LZ4 on mon RocksDB | | | |
+| 2 | double paxos trim thresholds | | | |
